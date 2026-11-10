@@ -63,9 +63,10 @@
           <div class="workflow-grid consultation-workflow">
             <section class="panel form-panel"><h2 data-i18n="scheduleConsultation">Schedule consultation</h2><form id="consultationForm">
               <label for="consultPatient" data-i18n="selectPatient">Patient</label><select id="consultPatient" required></select>
+              <div id="consultationEmptyPatients" class="consultation-notice" hidden><p data-i18n="consultationNeedsPatient">No patients are registered in this workspace. Register a synthetic patient to try the public video demo.</p><button id="registerConsultPatient" class="button secondary" type="button" data-i18n="registerPatient">Register patient</button></div>
               <label for="consultationTime" data-i18n="appointmentDateTime">Appointment date and time</label><input id="consultationTime" type="datetime-local" required>
               <label for="consultationDuration" data-i18n="appointmentLength">Appointment length</label><select id="consultationDuration"><option value="15">15 minutes</option><option value="30" selected>30 minutes</option><option value="45">45 minutes</option><option value="60">60 minutes</option></select>
-              <p id="consultationFormError" class="form-error" role="alert"></p><button class="button primary" type="submit" data-i18n="saveAppointment">Save appointment</button>
+              <p id="consultationFormError" class="form-error" role="alert"></p><button id="consultationSaveButton" class="button primary" type="submit" data-i18n="saveAppointment">Save appointment</button>
             </form></section>
             <aside class="panel guide-panel"><p class="eyebrow">PRIVATE VIDEO</p><h2 data-i18n="consultationPrivacyTitle">A private room for each appointment</h2><p class="muted" data-i18n="consultationPrivacyCopy">Room names are random and contain no patient details. A clinician must start the call; recording controls are disabled in the meeting interface.</p><div class="safety-note"><b data-i18n="consultationGuestTitle">Patient access</b><p data-i18n="consultationGuestCopy">Use the copy invitation link action to share a guest link through an approved channel. The patient waits in the Jitsi lobby until admitted.</p></div></aside>
           </div>
