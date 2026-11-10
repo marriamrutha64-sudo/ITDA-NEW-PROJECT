@@ -1,0 +1,40 @@
+{
+  "checked_at_utc": "2026-11-10T14:05:18+00:00",
+  "transport": "public HTTPS Cloudflare tunnel",
+  "input": "Generated uniform gray 320x320 RGB PNG; no patient photograph",
+  "model": "google/medgemma-1.5-4b-it",
+  "submission_http_status": 202,
+  "submission_seconds": 0.188,
+  "job_status": "succeeded",
+  "elapsed_seconds": 224.73,
+  "saved_output_matches": true,
+  "clinician_review_links_exact_inference": true,
+  "validated": false,
+  "clinical_validation": false,
+  "limitations": "Runtime and integration evidence only. No oral-disease performance, diagnostic accuracy or physical audio verification is established.",
+  "configuration": {
+    "precision": "original bfloat16",
+    "cpu_intra_op_threads": 8,
+    "cpu_inter_op_threads": 1,
+    "max_new_tokens": 96,
+    "checkpoint_modified": false
+  },
+  "prior_attempts": [
+    {
+      "configuration": "earlier CPU 256-token configuration",
+      "outcome": "300-second timeout; no successful output"
+    },
+    {
+      "configuration": "CPU four-thread 96-token configuration",
+      "outcome": "300-second timeout; no successful output"
+    },
+    {
+      "configuration": "experimental dynamic int8",
+      "outcome": "completed in 125.16 seconds but generated repetitive unusable output; rejected and excluded from app"
+    },
+    {
+      "configuration": "original bfloat16 eight-thread 96-token standalone",
+      "outcome": "completed in 197.64 seconds; 79 tokens; not truncated"
+    }
+  ]
+}

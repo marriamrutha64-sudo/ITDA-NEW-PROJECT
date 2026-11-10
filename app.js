@@ -84,15 +84,19 @@ function today() { return new Intl.DateTimeFormat(state.language === "te" ? "te-
 function showToast(message) { const el=$("toast"); el.textContent=message; el.classList.add("visible"); clearTimeout(state.toastTimer); state.toastTimer=setTimeout(()=>el.classList.remove("visible"),2800); }
 
 async function api(path, options={}) {
+  const requestOwner=state.user?.id, requestRole=state.user?.role;
   let response;
   try { response=await fetch(path,{credentials:"same-origin",...options,headers:{...(options.body instanceof FormData?{}:{"Content-Type":"application/json"}),...(options.headers||{})}}); }
   catch { const error=new Error(t("serverUnavailable")); error.network=true; throw error; }
+  if(!["/api/health","/api/session","/api/login","/api/logout"].includes(path)&&(state.user?.id!==requestOwner||state.user?.role!==requestRole)) {
+    const stale=new Error("The signed-in account changed. Open this page again.");stale.stale=true;throw stale;
+  }
   const type=response.headers.get("content-type")||"";
   const data=type.includes("application/json")?await response.json():{};
   if (!response.ok) { if (response.status===401 && path!=="/api/login") showLogin(); const error=new Error(data.error||t("loadError")); error.status=response.status; throw error; }
   return data;
 }
-function showLogin() { if(window.OfflineVault) window.OfflineVault.lock(); state.user=null; state.offlineMode=false; state.vaultOwner=null; state.syncErrors={}; state.syncingDrafts=false; state.pendingPatientSubmission=null; $("appView").hidden=true; $("loginView").hidden=false; }
+function showLogin() { closeConsultationCall(); for(const id of ["patientDialog","patientRecordDialog","referenceImageDialog"]) {const dialog=$(id);if(dialog?.open)dialog.close();} const record=$("patientRecordContent");if(record)record.replaceChildren(); if(window.OfflineVault) window.OfflineVault.lock(); state.user=null; state.offlineMode=false; state.vaultOwner=null; state.syncErrors={}; state.syncingDrafts=false; state.pendingPatientSubmission=null; $("appView").hidden=true; $("loginView").hidden=false; }
 function vaultUnlockedForCurrentUser() { return Boolean(window.OfflineVault?.isUnlocked() && state.vaultOwner && state.user && state.vaultOwner===state.user.username.toLowerCase()); }
 async function unlockOrCreateVault(username, passphrase) {
   if(!window.OfflineVault) throw new Error(t("offlineVaultUnavailable"));
@@ -112,6 +116,9 @@ function showApp(user, {offline=false}={}) {
   $("loginView").hidden=true; $("appView").hidden=false;
   document.querySelectorAll("[data-admin-only]").forEach(el=>el.hidden=user.role!=="admin");
   const canConsult=user.role==="admin"||user.role==="medical_officer"||user.role==="specialist";
+  const reviewForm=$("reviewForm"), referralForm=$("referralForm");
+  if(reviewForm)reviewForm.hidden=!canConsult;
+  if(referralForm)referralForm.hidden=!canConsult;
   document.querySelectorAll("[data-clinician-only]").forEach(el=>el.hidden=!canConsult);
   document.querySelectorAll("[data-page]").forEach(el=>{
     if(offline) el.hidden=el.dataset.page!=="patients";
@@ -128,17 +135,17 @@ function showApp(user, {offline=false}={}) {
   if(offline) { $("syncIndicator").className="sync-indicator offline"; $("syncLabel").textContent=t("offlineDraftPending"); goPage("patients"); }
   else { state.page="home"; document.querySelectorAll(".page").forEach(el=>el.classList.toggle("active",el.id==="page-home")); document.querySelectorAll(".nav-item").forEach(el=>el.classList.toggle("active",el.dataset.page==="home")); translate(); refreshAll().catch(err=>showToast(err.message)); if(vaultUnlockedForCurrentUser()) refreshOfflineDraftPanel().catch(err=>showToast(err.message)); }
 }
-function translate() { document.documentElement.lang=state.language; document.querySelectorAll("[data-i18n]").forEach(el=>{const val=t(el.dataset.i18n); if(val) el.textContent=val;}); document.querySelectorAll("[data-i18n-placeholder]").forEach(el=>el.placeholder=t(el.dataset.i18nPlaceholder)); $("languageButton").innerHTML=(state.language==="en"?"తెలుగు":"English")+" <span>⌄</span>"; $("todayLabel").textContent=today(); $("pageTitle").textContent=t(({home:"overview",patients:"patients",screening:"screening",review:"clinicalReview",care:"careCoordination",consultations:"consultations",audit:"auditLog"})[state.page]); }
+function translate() { document.documentElement.lang=state.language; document.querySelectorAll("[data-i18n]").forEach(el=>{const val=t(el.dataset.i18n); if(val && val!==el.dataset.i18n) el.textContent=val;}); document.querySelectorAll("[data-i18n-placeholder]").forEach(el=>el.placeholder=t(el.dataset.i18nPlaceholder)); $("languageButton").innerHTML=(state.language==="en"?"తెలుగు":"English")+" <span>⌄</span>"; $("todayLabel").textContent=today(); $("pageTitle").textContent=t(({home:"overview",patients:"patients",screening:"screening",review:"clinicalReview",care:"careCoordination",references:"references",consultations:"consultations",audit:"auditLog"})[state.page]); }
 function goPage(page) { if(state.offlineMode&&page!=="patients") return; const canConsult=state.user?.role==="admin"||state.user?.role==="medical_officer"||state.user?.role==="specialist"; if(page==="audit"&&state.user?.role!=="admin") return; if(page==="consultations"&&!canConsult) return; if(state.page==="consultations"&&page!=="consultations") closeConsultationCall(); state.page=page; document.querySelectorAll(".page").forEach(el=>el.classList.toggle("active",el.id===`page-${page}`)); document.querySelectorAll(".nav-item").forEach(el=>el.classList.toggle("active",el.dataset.page===page)); $("sidebar").classList.remove("open"); translate(); if(page==="home") loadDashboard(); if(page==="patients") loadPatients(); if(page==="screening") { loadPatients().then(()=>loadScreenings()); } if(page==="review") { loadPatients().then(()=>loadReviews()); } if(page==="care") { loadPatients().then(()=>loadCare()); } if(page==="consultations") { loadPatients().then(()=>loadConsultations()).catch(err=>showToast(err.message)); } if(page==="audit") loadAudit(); }
 function openPatientDialog() { if(!$("patientDialog").open) $("patientDialog").showModal(); $("patientError").textContent=""; }
 
 async function refreshAll() { if(state.offlineMode) return; $("syncLabel").textContent=t("syncing"); try { await api("/api/health"); $("syncIndicator").className="sync-indicator"; $("syncLabel").textContent=t("serverOnline"); await loadDashboard(); } catch { $("syncIndicator").className="sync-indicator offline"; $("syncLabel").textContent=t("serverOffline"); throw new Error(t("serverUnavailable")); } }
 async function loadDashboard() { const data=await api("/api/dashboard"); $("metricPatients").textContent=data.patients; $("metricScreenings").textContent=data.screenings; $("metricFollowups").textContent=data.followups; $("metricReferrals").textContent=data.referrals; const has=data.patients>0; $("recentEmpty").hidden=has; $("journeyEmpty").hidden=has; $("recentPatientsBody").innerHTML=data.recent.map(p=>`<tr><td><div class="patient-cell"><span class="patient-initial">${escapeHtml(p.name[0]?.toUpperCase())}</span>${escapeHtml(p.name)}</div></td><td><span class="id-code">${escapeHtml(p.patient_code)}</span></td><td>${escapeHtml(p.village)}</td><td>${dateLabel(p.created_at)}</td><td><button class="row-action" data-open-patient="${escapeHtml(p.id)}">${t("viewRecord")} →</button></td></tr>`).join(""); }
-async function loadPatients() { if(state.offlineMode) { state.patients=[]; $("patientRecordsPanel").hidden=true; renderPatients(); fillPatientSelects(); await refreshOfflineDraftPanel(); return {patients:[]}; } const data=await api("/api/patients"); state.patients=data.patients; $("patientRecordsPanel").hidden=false; renderPatients(); fillPatientSelects(); if(vaultUnlockedForCurrentUser()) await refreshOfflineDraftPanel(); return data; }
+async function loadPatients() { if(state.offlineMode) { state.patients=[]; $("patientRecordsPanel").hidden=true; renderPatients(); fillPatientSelects(); await refreshOfflineDraftPanel(); return {patients:[]}; } const data=await api("/api/patients"); state.patients=data.patients; if(window.OfflineScreening&&vaultUnlockedForCurrentUser()) await window.OfflineScreening.cachePatients(data.patients,{ownerUsername:state.vaultOwner,isCurrentUser:owner=>vaultUnlockedForCurrentUser()&&state.user?.username.toLowerCase()===owner}); $("patientRecordsPanel").hidden=false; renderPatients(); fillPatientSelects(); window.dispatchEvent(new Event("aarogya-patients-loaded")); if(vaultUnlockedForCurrentUser()) await refreshOfflineDraftPanel(); return data; }
 async function refreshOfflineDraftPanel() {
   const panel=$("offlineDraftPanel");
   if(!vaultUnlockedForCurrentUser()) { panel.hidden=true; return []; }
-  const entries=await window.OfflineVault.listOperations();
+  const entries=(await window.OfflineVault.listOperations()).filter(entry=>entry.operation?.type==="patient-registration-v1");
   panel.hidden=false;
   $("offlineDraftCount").textContent=String(entries.length);
   const canSync=!state.offlineMode&&state.user?.role==="health_worker";
@@ -166,7 +173,7 @@ async function syncOfflineDrafts() {
     if(!session.authenticated||session.user?.username!==state.user.username) { showLogin(); $("loginError").textContent=t("sessionExpiredDrafts"); return; }
   } catch(error) { $("offlineDraftStatus").textContent=error.message; return; }
   let entries;
-  try { entries=await window.OfflineVault.listOperations(); }
+  try { entries=(await window.OfflineVault.listOperations()).filter(entry=>entry.operation?.type==="patient-registration-v1"); }
   catch(error) { $("offlineDraftStatus").textContent=error.message; return; }
   if(!entries.length) { await refreshOfflineDraftPanel(); return; }
   state.syncingDrafts=true;
@@ -285,6 +292,7 @@ async function joinConsultation(id) {
       userInfo:{displayName:"Clinician"},
       configOverwrite:{
         startSilent:false,
+        p2p:{enabled:false},
         startWithAudioMuted:true,
         startWithVideoMuted:true,
         prejoinConfig:{enabled:true},
@@ -298,6 +306,11 @@ async function joinConsultation(id) {
       }
     });
     state.jitsiApi=external;
+    if(window.CallDiagnostics) {
+      let container=$("consultationDiagnostics");
+      if(!container) { container=document.createElement("div");container.id="consultationDiagnostics";panel.appendChild(container); }
+      state.callDiagnostics=window.CallDiagnostics.attach(external,{container,role:"doctor",onRelayRetry:async()=>{if(window.confirm("Leave and rejoin using the Jitsi bridge? Ask the patient to rejoin too."))await joinConsultation(id);}});
+    }
     $("consultationCallState").textContent=t("callReady");
     renderConsultationAudio();
     const currentEvent=(callback)=>(...args)=>{if(state.jitsiApi===external&&generation===state.callGeneration)return callback(...args);};
@@ -357,6 +370,7 @@ async function turnConsultationMicrophoneOn() {
 }
 function closeConsultationCall(leave=true) {
   state.callGeneration++; state.activeConsultation=null;
+  state.callDiagnostics?.detach();state.callDiagnostics=null;
   if(state.callAudio.requestTimer)clearTimeout(state.callAudio.requestTimer);
   state.callAudio={joined:false,muted:null,available:null,pending:false};
   const external=state.jitsiApi; state.jitsiApi=null;
@@ -373,7 +387,15 @@ async function copyConsultationLink(id) {
   if(state.videoProvider==="public_demo"&&!window.confirm(t("acknowledgeVideoDemo"))) return;
   try {
     const data=await api(`/api/consultations/${encodeURIComponent(id)}/invite`,{method:"POST",body:JSON.stringify({acknowledge_demo:state.videoProvider==="public_demo"})});
-    const guestUrl=data.provider==="public_demo"?data.guest_url.split("#")[0]+"#config.startSilent=false&config.startWithAudioMuted=true":data.guest_url;
+    let guestUrl=data.guest_url;
+    if(data.provider==="public_demo") {
+      const room=data.guest_url.split("#")[0].split("/").pop();
+      const origin=window.location?.origin;
+      const reachable=origin?.startsWith("https://")&&!/^https:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(origin);
+      guestUrl=reachable&&/^[a-f0-9]{48}$/.test(room)
+        ?`${window.location.origin}/patient-call.html#room=${room}`
+        :data.guest_url.split("#")[0]+"#config.startSilent=false&config.startWithAudioMuted=true&config.p2p.enabled=false";
+    }
     $("consultationInvitePanel").hidden=false; $("consultationInviteLink").value=guestUrl;
     try {await navigator.clipboard.writeText(guestUrl);showToast(t("invitationCopied"));}
     catch {showToast(t("invitationReady"));}

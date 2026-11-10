@@ -19,6 +19,10 @@ import struct
 import time
 import unicodedata
 import uuid
+import sys
+import clinical_records
+import ai_jobs
+import offline_screenings
 import medgemma_runtime
 from auth_limits import LoginThrottle
 from getpass import getpass
@@ -166,6 +170,9 @@ def init_db():
         """)
         db.execute("BEGIN IMMEDIATE")
         migrate_patient_identity_key(db)
+        clinical_records.init_schema(db)
+        offline_screenings.ensure_schema(db)
+        ai_jobs.init_schema(db)
 
 
 def now_iso():
@@ -377,16 +384,60 @@ class Handler(BaseHTTPRequestHandler):
 
     def json(self, value, status=200, extra_headers=None):
         data = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+        rejected_post = self.command == "POST" and status >= 400
+        if rejected_post:
+            # Closing a socket with unread upload bytes can reset it on Windows,
+            # losing the intended 401/403 response. Drain only the remaining
+            # bounded body, with a total deadline so slow clients cannot hold us.
+            self.discard_rejected_request_body()
+            self.close_connection = True
         self.send_headers(status, length=len(data))
+        if rejected_post:
+            self.send_header("Connection", "close")
         for key, val in (extra_headers or {}).items():
             self.send_header(key, val)
         self.end_headers(); self.wfile.write(data)
+
+    def read_request_body(self, size):
+        if not isinstance(size, int) or size < 0 or size > MAX_REQUEST:
+            raise ValueError("Request body exceeds the allowed size.")
+        raw = self.rfile.read(size)
+        self._request_body_consumed = getattr(self, "_request_body_consumed", 0) + len(raw)
+        return raw
+
+    def discard_rejected_request_body(self):
+        try:
+            declared = int(self.headers.get("Content-Length", "0"))
+        except (TypeError, ValueError):
+            return
+        consumed = getattr(self, "_request_body_consumed", 0)
+        remaining = min(max(0, declared - consumed), max(0, MAX_REQUEST - consumed))
+        if not remaining:
+            return
+        previous_timeout = self.connection.gettimeout()
+        deadline = time.monotonic() + 0.5
+        read_available = getattr(self.rfile, "read1", self.rfile.read)
+        try:
+            while remaining:
+                timeout = deadline - time.monotonic()
+                if timeout <= 0:
+                    break
+                self.connection.settimeout(timeout)
+                chunk = read_available(min(64 * 1024, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                self._request_body_consumed = getattr(self, "_request_body_consumed", 0) + len(chunk)
+        except (OSError, ValueError):
+            pass
+        finally:
+            self.connection.settimeout(previous_timeout)
 
     def body(self):
         length = int(self.headers.get("Content-Length", "0"))
         if length <= 0 or length > MAX_REQUEST:
             raise ValueError("Request body is empty or exceeds the allowed size.")
-        raw = self.rfile.read(length)
+        raw = self.read_request_body(length)
         if self.headers.get("Content-Type", "").startswith("application/json"):
             result = json.loads(raw)
             if not isinstance(result, dict):
@@ -428,7 +479,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"authenticated": bool(user), "user": user})
                 return
             if path == "/api/health":
-                self.json({"ok": True, "service": "aarogya-drishti", "ai": medgemma_runtime.status()})
+                ai = medgemma_runtime.status()
+                ai["busy"] = ai.get("busy", False) or ai_jobs.is_busy()
+                self.json({"ok": True, "service": "aarogya-drishti", "ai": ai})
                 return
             if path == "/api/consultations":
                 user = self.require_user({"medical_officer", "specialist"})
@@ -456,6 +509,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             user = self.require_user()
             if not user: return
+            if ai_jobs.handle_get(self, user, path, sys.modules[__name__]): return
+            if clinical_records.handle_get(self, user, path, sys.modules[__name__]): return
             with connect() as db:
                 if path == "/api/dashboard":
                     scope = "WHERE created_by=?" if user["role"] == "health_worker" else ""
@@ -485,7 +540,7 @@ class Handler(BaseHTTPRequestHandler):
                 if path == "/api/patients":
                     scope = "WHERE created_by=?" if user["role"] == "health_worker" else ""
                     args = (user["id"],) if scope else ()
-                    rows = db.execute("SELECT id,patient_code,name,age,gender,village,district,created_at FROM patients " + scope + " ORDER BY created_at DESC LIMIT 500", args).fetchall()
+                    rows = db.execute("SELECT id,patient_code,name,age,gender,village,district,consent,created_at FROM patients " + scope + " ORDER BY created_at DESC LIMIT 500", args).fetchall()
                     self.json({"patients": [dict(row) for row in rows]}); return
                 if path.startswith("/api/patients/"):
                     patient_id = path.rsplit("/", 1)[-1]
@@ -527,10 +582,12 @@ class Handler(BaseHTTPRequestHandler):
                     data = file_path.read_bytes()
                     self.send_headers(200, row["image_type"], len(data)); self.send_header("Content-Disposition", "inline; filename=screening-image"); self.end_headers(); self.wfile.write(data); return
             self.json({"error": "Not found."}, 404); return
-        if path == "/" or path in ("/index.html", "/app.js", "/medgemma-ui.js", "/styles.css", "/offline-vault.js", "/manifest.json", "/service-worker.js", "/icon.svg"):
+        public_files = {"/", "/index.html", "/app.js", "/medgemma-ui.js", "/styles.css", "/offline-vault.js", "/manifest.json", "/service-worker.js", "/icon.svg", "/gallery.js", "/reference-labels.js", "/call-diagnostics.js", "/care-records.js", "/offline-screening.js", "/offline-capture-ui.js", "/patient-call.html", "/patient-call.js"}
+        reference_files = {"/assets/reference/" + name for name in ("gums-reference.jpg", "ulcer-reference-poster.jpg", "tongue-reference.jpg", "examination-reference.jpg", "clinic-reference.jpg", "outreach-reference.jpg", "palate-reference.jpg")}
+        if path in public_files | reference_files:
             name = "index.html" if path == "/" else path.lstrip("/")
             file_path = (ROOT / name).resolve()
-            if file_path.parent != ROOT or not file_path.exists():
+            if not file_path.is_relative_to(ROOT) or not file_path.is_file():
                 self.send_error(404); return
             data = file_path.read_bytes()
             kind = mimetypes.guess_type(name)[0] or "application/octet-stream"
@@ -539,6 +596,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
+        self._request_body_consumed = 0
         path = urlparse(self.path).path
         if path.startswith("/api/") and not self.same_origin():
             self.json({"error": "Request origin rejected."}, 403); return
@@ -569,6 +627,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"ok": True}, extra_headers={"Set-Cookie": f"{COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"}); return
             user = self.require_user()
             if not user: return
+            if ai_jobs.handle_post(self, user, path, sys.modules[__name__]): return
+            if offline_screenings.handle_post(self, user, path, sys.modules[__name__]): return
+            if clinical_records.handle_post(self, user, path, sys.modules[__name__]): return
             if path == "/api/offline/patients":
                 if user["role"] != "health_worker":
                     self.json({"error": "Only health workers can synchronize patient registrations."}, 403); return
@@ -794,12 +855,14 @@ class Handler(BaseHTTPRequestHandler):
                     self.json({"error": "Screening must be submitted as a multipart image upload."}, 415); return
                 request_length = int(self.headers.get("Content-Length", "0"))
                 if not request_length or request_length > MAX_REQUEST: raise ValueError("The uploaded image is too large.")
-                raw = self.rfile.read(request_length)
+                raw = self.read_request_body(request_length)
                 boundary = ctype.split("boundary=",1)[1].strip().strip('"').encode()
                 fields, image = parse_multipart(raw, boundary)
                 patient_id = fields.get("patient_id", "")
                 with connect() as db:
-                    if not db.execute("SELECT 1 FROM patients WHERE id=?", (patient_id,)).fetchone(): raise ValueError("Choose a registered patient.")
+                    patient = db.execute("SELECT created_by FROM patients WHERE id=?", (patient_id,)).fetchone()
+                    if not patient or (user["role"] == "health_worker" and patient["created_by"] != user["id"]):
+                        self.json({"error":"Patient not found or you do not have access."},404); return
                     if not image or len(image) > MAX_IMAGE: raise ValueError("Choose an image smaller than 7 MB.")
                     info = image_info(image)
                     if not info: raise ValueError("Image is not a supported JPEG, PNG or WebP file.")
@@ -828,7 +891,9 @@ class Handler(BaseHTTPRequestHandler):
             if path in ("/api/referrals", "/api/followups"):
                 data=self.body(); pid=clean(data,"patient_id",40,required=True); created=now_iso(); eid=str(uuid.uuid4())
                 with connect() as db:
-                    if not db.execute("SELECT 1 FROM patients WHERE id=?",(pid,)).fetchone(): raise ValueError("Choose a registered patient.")
+                    patient = db.execute("SELECT created_by FROM patients WHERE id=?", (pid,)).fetchone()
+                    if not patient or (user["role"] == "health_worker" and patient["created_by"] != user["id"]):
+                        self.json({"error":"Patient not found or you do not have access."},404); return
                     if path.endswith("referrals"):
                         if user["role"] not in {"admin","medical_officer","specialist"}: self.json({"error":"Only clinical staff can create a referral."},403); return
                         values=(clean(data,"facility",180,required=True),clean(data,"department",120),clean(data,"reason",3000,required=True),clean(data,"appointment_date",20))
@@ -862,7 +927,9 @@ class Handler(BaseHTTPRequestHandler):
                     result = medgemma_runtime.analyze(image_path)
                 except medgemma_runtime.InferenceUnavailable as exc:
                     self.json({"error": str(exc)}, 503); return
-                self.audit(user, "generated_experimental_observations", "screening", sid)
+                with connect() as db:
+                    saved = clinical_records.record_ai_inference(db, user, sid, result, sys.modules[__name__])
+                result.update(inference_id=saved["id"], inference_audit_id=saved["inference_audit_id"])
                 self.json(result); return
             self.json({"error":"Not found."},404)
         except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:

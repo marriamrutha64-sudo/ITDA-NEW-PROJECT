@@ -15,8 +15,10 @@ RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin aaro
 # Copy only the files used by the current app. The repository's image and
 # legacy draft files are intentionally excluded from this preview image.
 COPY --chown=aarogya:aarogya app.py ./app.py
-COPY --chown=aarogya:aarogya auth_limits.py ./auth_limits.py
-COPY --chown=aarogya:aarogya medgemma_runtime.py medgemma_worker.py ./
+COPY --chown=aarogya:aarogya auth_limits.py clinical_records.py ai_jobs.py offline_screenings.py ./
+COPY --chown=aarogya:aarogya gallery.js reference-labels.js call-diagnostics.js care-records.js offline-screening.js offline-capture-ui.js patient-call.html patient-call.js ./
+COPY --chown=aarogya:aarogya assets/reference ./assets/reference
+COPY --chown=aarogya:aarogya medgemma_runtime.py medgemma_worker.py inference_lock.py ./
 COPY --chown=aarogya:aarogya app.js ./app.js
 COPY --chown=aarogya:aarogya medgemma-ui.js ./medgemma-ui.js
 COPY --chown=aarogya:aarogya offline-vault.js ./offline-vault.js

@@ -1,0 +1,79 @@
+# Evaluation readiness and demonstration runbook
+
+This prototype implements the patient workflow described by the project presentation sheet. It remains a synthetic-data research demonstration. Clinical AI validation, confirmed two-way consultation audio, permanent hosting and a completed deployment security review are outstanding. This document awards no marks and makes no prize-eligibility claim.
+
+## Evaluation sources
+
+The project owner supplied **Aarohan_Hackathon_Evaluation_Sheet.docx**, titled “AAROGYA DRISHTI – PROJECT PRESENTATION EVALUATION SHEET”, with presentation date **10 November 2026**. Its seven criteria total **100 marks**. The assessment wording and weights below are transcribed from its evaluation table. That sheet supplies no pass/fail cutoff, model accuracy threshold, named model requirement or native APK requirement.
+
+Its final note states: **“AI output is advisory only and must not be used for clinical decision-making during the hackathon demonstration.”** This applies throughout the demonstration, including printed summaries and clinician review of experimental output.
+
+The separately supplied **AAROHAN_Aarogya_Drishti_Final_Evaluation_Rules_12_Nov_2026.pdf** is a distinct three-page source for the final evaluation on **12 November 2026**. Its mandatory eligibility rules are considered separately below. Completion of a weighted feature list does not establish compliance with that PDF.
+
+## Exact scoring criteria and implementation mapping
+
+| Evaluation criterion | Maximum marks | Sheet assessment text | Where to demonstrate it | Evidence and limits |
+| --- | ---: | --- | --- | --- |
+| Workflow & Integration | 20 | End-to-end patient journey; integration of registration, screening, review, referrals, treatment tracking and dashboard. | Patients → Oral screening → Clinical review → Care coordination → Consultations → Overview. `app.js`, `care-records.js`, `app.py`, `clinical_records.py`. | Patient-specific stages come from saved records. Diagnostics, treatment and specialist progress retain earlier events. The Overview illustration is a general workflow guide; use Care coordination for the actual selected patient's stages. |
+| AI + Image Quality + Safety | 15 | Oral image quality checks, AI-assisted analysis, handling of unclear images, explainability and safe advisory-only use. | Image checks in Oral screening; explicit Experimental MedGemma observations action; saved source text and review in Care coordination. `medgemma-ui.js`, `ai_jobs.py`, `medgemma_runtime.py`, `medgemma_worker.py`. | Genuine local inference and source provenance are implemented. Dimensions, size and format checks and basic lighting/contrast warnings do not establish clinical image adequacy. Generated observations and explanations can be wrong. No clinical performance claim is supported. |
+| Doctor Review + Teleconsultation | 15 | Medical officer review, ability to override AI output, specialist consultation and clear clinical escalation workflow. | Clinical review form; Care coordination → AI review and override / Specialist escalation; Consultations and patient guest page. | Clinical staff can record agreement, disagreement/override, insufficient output, or independent assessment. AI-related reviews require a real generation audit. Specialist escalation is a recorded workflow, not automatic clinician notification. Jitsi join/invitation and diagnostic controls are implemented; actual two-way audio is still unverified. |
+| Records + Diagnostics + Navigation | 15 | Patient record management, biopsy / diagnostic tracking, reports, treatment progress and ease of navigation. | Patient record modal; Care coordination → Diagnostics and biopsy / Treatment progress / Print patient summary. | Clinician-authored diagnostic types, result/report notes and treatment stages are saved. Record progress adds a linked event. The report reproduces recorded information after an explicit privacy confirmation. It does not import laboratory results, certify outcomes or automatically prescribe care. |
+| Security + Privacy | 15 | Authentication, role-based access, protection of patient information, secure storage and audit trail. | Separate worker/doctor/admin accounts; restricted APIs and image routes; administrator Audit log. `app.py`, `auth_limits.py`, `clinical_records.py`, `offline-vault.js`, `offline_screenings.py`. | Server authorization, password hashing, signed session cookies, same-origin writes, validation and audit records are implemented. Offline browser drafts are encrypted. Server SQLite and uploaded files are not encrypted by the application at rest. HTTPS demo access and a private directory do not establish production security or regulatory compliance. |
+| Telugu + Offline + Accessibility | 10 | Telugu language support, offline capture and sync, accessibility and usability in remote tribal communities. | Language button; responsive phone/PWA layout; Patients → encrypted registration and oral-photo capture; keyboard access and image dialog. | Offline captures can reference an encrypted cached patient choice or a pending registration. Sync requires reconnecting and authenticating as the same worker. Existing full clinical records, clinician review, AI and video remain online. Screen-reader, low-bandwidth and community field usability need human testing; PWA installation is not a native mobile build. |
+| Deployment + Code Quality + Documentation | 10 | Working deployment, maintainable code, architecture, API / database documentation and demo readiness. | `share_demo.py`, `open_demo.py`, [architecture](ARCHITECTURE.md), [API/database reference](API_DATABASE.md), tests and [preview deployment](../deploy/README.md). | A temporary HTTPS presentation tunnel can serve phones and computers while the host remains running. Permanent hosting is not configured. Docker/Caddy files are a preview scaffold and have not been built or exercised in this workspace. The Python development server remains in use. |
+| **Total available** | **100** | | | **No self-awarded score.** |
+
+## Separate final-rule evidence
+
+The earlier PDF's §3, pages 1–2, asks for dataset inventory/provenance, original-image and patient counts where known, licences/annotations, training/validation/testing methodology, model architecture/checkpoint, confusion matrix, sensitivity, specificity, accuracy, F1, false-positive/false-negative counts, condition-wise results, independent results and limitations. §4 describes an unseen jury dataset and prohibits tuning on it. Those requirements are not present in the shorter DOCX scoring table, and they are not satisfied by installing a foundation checkpoint.
+
+The official `google/medgemma-1.5-4b-it` checkpoint is installed locally. [The runtime record](../qa/medgemma-runtime-check.json) reports actual execution on one plain gray synthetic image, with `clinical_validation:false`. It measures no sensitivity, specificity or disease discrimination. The [validation dossier](../AI_VALIDATION.md) remains incomplete. Project-owner supplied gallery photographs are visual references, not a labeled evaluation set or evidence of training rights.
+
+The PDF's §5, page 2, contains safety prohibitions and requires research outputs to display **NOT FOR CLINICAL USE**. §6, pages 2–3, calls for independent security and functional tests; its eligibility exclusions include critical security vulnerabilities, fabricated AI, unresolved critical patient-record integrity defects and nonfunctional essential workflows. §8, page 3, allows source/log/model inspection and warns about fabricated or concealed evidence. These conditions require independent verification; this repository does not claim they have all passed.
+
+## Presentation preparation
+
+1. Use fictional people, demonstration notes and synthetic images only. Keep passwords and vault passphrases outside slides, chat and source control.
+2. Restart the project's server after source updates; the development server does not automatically reload Python modules. Use the terminal or launcher that owns the existing server process.
+3. For this workstation's local demonstration, run `python open_demo.py`. For other devices, run `python share_demo.py` and use its printed HTTPS address. See [sharing instructions](../SHARE_DEMO.md). The address is temporary and depends on the PC, backend and tunnel remaining online.
+4. Sign in with an existing `qa-worker`, `qa-doctor` or `qa-admin` account and its previously chosen password. There is no universal password. A doctor's Aarogya account and public Jitsi host account are separate.
+5. Prepare a worker vault online on each browser/device/origin that will demonstrate offline use. Choose a passphrase of at least 12 characters. Load Patients once to encrypt the permitted patient choices. Confirm that the PWA shell has loaded before disconnecting.
+6. Budget up to five minutes for CPU inference. A previously saved genuine result can be reopened with its model, time and generation audit reference. Failure or missing evidence must remain visible.
+
+## Demonstration sequence and acceptance observations
+
+| Step | Action | Observe and record |
+| --- | --- | --- |
+| 1. Registration | As worker, register a fictional patient with demonstration consent and clinical history. Open the saved record. | A server-generated patient ID, retained details and correct worker scope. A duplicate registration produces a warning/conflict rather than an unintended duplicate. |
+| 2. Image capture | Save a synthetic oral-screening demonstration image of sufficient dimensions. Also select a deliberately small/unsupported input to show validation. | Appropriate error or quality warning. A technically accepted file is not represented as clinically adequate. |
+| 3. Actual AI | As doctor, explicitly acknowledge the research warning and request observations for a saved screening. Wait for the job's actual terminal status. | A successful run displays saved text with the unvalidated notice. A failure has an error and no fabricated replacement. A gray or unrelated demonstration image is not an accuracy test. |
+| 4. Review/override | In Care coordination select the same patient and screening. Inspect the saved AI run; record disagreement/override with an independent assessment, or select independent assessment when no AI source exists. | AI-related reviews link a genuine audit/source. Historical text that was not saved is labeled unavailable. Review notes remain clinician-authored. |
+| 5. Diagnostic tracking | Add a clearly simulated diagnostic order. Choose Record progress to add a later processing/reported event with a simulated report note. | The earlier order remains in history; the new event links to it. Reported status requires a result summary or report note. |
+| 6. Treatment/escalation | Enter a demonstration treatment plan and later progress. Record a specialist request and a later accepted/in-review event. Add a referral and follow-up using the existing forms. | Actual saved statuses, clinician names and dates. These are recorded workflow events; the system sends no specialist notification or hospital booking request. |
+| 7. Report | Choose Print patient summary, read the privacy confirmation and inspect the browser print preview. Cancel printing if no copy is needed. | The selected patient's records and advisory-only notice appear. Printing is explicit; no report is sent automatically. |
+| 8. Video | Doctor schedules an appointment in the available join window, starts the room and completes Jitsi host sign-in personally. A simulated patient opens the exact guest link on another device. | Actual admission and video; then spoken audio in both directions. Exercise mute, leave/rejoin and camera toggle. One-way silence is still an open issue until participants confirm hearing. |
+| 9. Media diagnostics | If silent, run the explicit local call checks and have both participants rejoin through the bridge option. | Record available local audio/ICE/route evidence. Missing metrics remain unavailable. Moving meters, measured packets and a speaker test do not prove the patient heard the clinician. |
+| 10. Offline | As prepared worker, disconnect, open offline drafts, create a fictional registration and encrypted photo draft, then reconnect and sign in as the same worker with the vault passphrase. Choose Sync registrations, then photographs. | Registration resolves before its photo. Only matched server acknowledgement removes a queued photo. Lost responses can be retried without duplicate records; conflicts stay visible. |
+| 11. Language/device | Repeat key controls in Telugu, keyboard through forms and open/close a reference image on a phone. | Readable labels, focus, validation and full-size image dialog. Record any untranslated text or device-specific failure rather than treating source translations as field usability proof. |
+| 12. Monitoring | As admin, inspect Audit log and Overview after the controlled changes. | Counts reflect the actual database and their stated meaning. Worker views stay scoped to their permitted records. |
+
+## Verification commands and evidence limits
+
+Run from the repository root:
+
+```powershell
+python -m unittest discover -s tests -p "test_*.py"
+node --test
+```
+
+Tests exercise authentication, role boundaries, patient integrity, offline encryption and replay, image checks, linked care history, AI job/source handling, video configuration and frontend state races. Read the command output for the actual revision and results; a passing code test is not a successful two-person media test, clinical validation, a browser accessibility audit or a deployed-infrastructure test. Keep patient details and credentials out of test reports.
+
+### Verification checkpoint on 10 November 2026
+
+The final full suites passed 92 Python backend tests and 79 JavaScript tests on 10 November 2026. Tests cover real HTTP workflows, authorization, rollback and idempotency, encrypted-vault behavior, stale account/patient responses, AI job lifecycle, call controls and missing diagnostic values. Synthetic model stubs in unit tests are distinct from the real inference evidence. These results do not certify every deployment or device.
+
+Desktop browser inspection visibly confirmed all seven reference images with readable labels and the selected-patient care stages/forms. It also exposed the login shell overriding its `hidden` state; the global hidden rule was corrected and the doctor view was checked for the hidden login and administrator navigation. This was desktop inspection, not a phone accessibility or media acceptance test.
+
+Two earlier real-model HTTPS CPU attempts timed out after 300 seconds: the earlier 256-token configuration and a four-thread/96-token attempt. The final original-bfloat16, eight-thread/96-token configuration completed a standalone run in 197.64 seconds (79 tokens, not truncated). Its subsequent public HTTPS asynchronous check succeeded in 224.73 seconds; submission returned 202 in 0.188 seconds, saved exact output matched, and clinician review linked the genuine inference. A faster int8 experiment produced unusable repetitive text and was rejected; it is not shipped. See [runtime integration evidence](../qa/async-ai-runtime-check.json) and [verification summary](../qa/latest-verification.json). These results establish runtime/integration evidence only, not clinical validation or confirmed two-way Jitsi audio.
+
+Unresolved external acceptance remains: independently labeled clinical evaluation and hidden-set results, verified patient hearing in a live call, persistent reviewed hosting, configured/rehearsed backup recovery, and broader clinician/worker/accessibility field testing. Server at-rest protection must be explicitly configured and verified before considering real health information. See [architecture and operational boundaries](ARCHITECTURE.md).

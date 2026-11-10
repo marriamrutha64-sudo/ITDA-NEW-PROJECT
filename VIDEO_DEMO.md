@@ -6,6 +6,8 @@ This mode connects the Aarogya Drishti prototype to **public `meet.jit.si` for s
 
 From the repository's PowerShell terminal, stop an existing local Aarogya server with Ctrl+C in its own terminal. Then run:
 
+For the existing local workspace, `python open_demo.py` opens port 8001. For a presentation across devices, run `python share_demo.py` and open its temporary HTTPS address. These Python launchers work without changing PowerShell script policy. The older PowerShell launcher below is optional.
+
 ```powershell
 .\scripts\start-video-demo.ps1 -UseManualQaData
 ```
@@ -26,14 +28,16 @@ Choose a password of at least 12 characters at the terminal prompt. If the accou
 1. Sign in to the local app as a doctor or administrator. Register a fictional patient if no synthetic record exists.
 2. Open **Consultations**, choose that patient, and save an appointment for now or within the next 15 minutes. Join/link actions open 15 minutes before the scheduled start and close 30 minutes after its scheduled duration.
 3. Start the call using the consultation's join action. **Browser handoff:** the doctor must personally complete the public Jitsi sign-in when prompted. This account is separate from the Aarogya login. Allow camera and microphone only when ready to test them.
-4. Copy the patient invitation link. It should contain `https://meet.jit.si/` and a long random room name, with no patient name or ID. Open it on a second device or a separate browser session as the simulated patient. The patient does not need an Aarogya account.
+4. Copy the patient invitation link. From the public HTTPS application it opens `/patient-call.html#room=...`, with a long random room name and no patient name or ID. The patient chooses **Join demonstration** and needs no Aarogya account. The page includes a direct Jitsi fallback. From localhost or plain HTTP, the copy action gives a direct HTTPS Jitsi invitation so a second device receives a reachable link; use the public app for patient-page audio diagnostics.
 5. If the meeting lobby is enabled, request to join as the patient and admit that request from the doctor's meeting controls. Verify actual lobby behavior rather than assuming it from the application appointment state.
 6. Confirm that each participant can hear and see the other. Test mute, camera toggle, leave, and rejoin. Use headphones or physically separate devices to avoid audio feedback.
 7. Leave the meeting on both devices. Update the application's appointment state as appropriate.
 
-The local app can remain bound to localhost because the patient joins the public Jitsi URL directly. Sharing `http://127.0.0.1:8000` with another person will not share the local app; that address refers to their own computer.
+The local server can remain bound to localhost behind the presentation tunnel. The patient invitation page needs the reachable HTTPS application address from `share_demo.py`. Sharing `http://127.0.0.1:8001` with another person will not share the local app; that address refers to their own computer. The direct Jitsi fallback also works independently of the app.
 
 ## Expected limits and recovery
+
+Both embedded participants now request `startSilent=false` and Jitsi bridge transport (`p2p.enabled=false`). **Check audio stream** measures this device's available outgoing/incoming audio bitrate, ICE state and route at three sample times. Ask the clinician to keep speaking during the patient's check. Missing values remain unavailable. A bitrate is not proof of audible speech. **Retry using Jitsi bridge** is an explicit leave/rejoin action; both participants should rejoin. Previously copied direct links do not acquire the new patient-page controls automatically. Copy a new invitation from the current public demo.
 
 If the patient sees video but cannot hear the doctor, first check the doctor's microphone icon in the active Jitsi meeting. Embedded calls start muted intentionally. The app now reports microphone mute/availability and offers **Turn microphone on** after the meeting is joined. It requests activation only after that explicit click and waits for Jitsi's mute-state event; it does not claim the patient can hear merely because the microphone is unmuted.
 

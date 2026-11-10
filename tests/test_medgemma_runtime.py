@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 import medgemma_runtime as runtime
+import inference_lock
 
 
 class MedGemmaTests(unittest.TestCase):
@@ -44,6 +45,36 @@ class MedGemmaTests(unittest.TestCase):
             for _ in range(2):
                 with self.assertRaisesRegex(runtime.InferenceUnavailable, "five minutes"):
                     runtime.analyze("synthetic.png")
+
+    def test_busy_request_never_starts_another_worker(self):
+        self.assertTrue(runtime._slot.acquire(blocking=False))
+        try:
+            with patch.object(runtime, "status", return_value={"available": True}), patch.object(subprocess, "run") as run:
+                with self.assertRaisesRegex(runtime.InferenceUnavailable, "busy"):
+                    runtime.analyze("synthetic.png")
+                run.assert_not_called()
+        finally:
+            runtime._slot.release()
+
+    def test_another_app_instance_cannot_start_a_second_worker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(os.environ,{"AAROGYA_MEDGEMMA_MODEL_DIR":directory}), patch.object(runtime,"status",return_value={"available":True}), patch.object(subprocess,"run") as run:
+                handle=inference_lock.try_acquire(directory)
+                self.assertIsNotNone(handle)
+                try:
+                    with self.assertRaisesRegex(runtime.InferenceUnavailable,"another app instance"):
+                        runtime.analyze("synthetic.png")
+                    run.assert_not_called()
+                finally:
+                    inference_lock.release(handle)
+
+    def test_token_limited_output_is_explicitly_marked_incomplete(self):
+        response=SimpleNamespace(returncode=0, stdout=json.dumps({"text":"Partial research observations", "truncated":True}))
+        with patch.dict(os.environ,{"AAROGYA_MEDGEMMA_MODEL_DIR":"__test_stub_token_limit__"}), patch.object(runtime, "status", return_value={"available": True}), patch.object(subprocess, "run", return_value=response):
+            result=runtime.analyze("synthetic.png")
+        self.assertTrue(result["truncated"])
+        self.assertIn("may be incomplete",result["notice"])
+        self.assertFalse(result["validated"])
 
 
 if __name__ == "__main__":

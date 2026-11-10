@@ -26,6 +26,7 @@ function makeHarness({ withJitsi = true, confirm = true } = {}) {
     return elements.get(id);
   };
   const window = {
+    location:{origin:"https://demo.example"},
     confirm(message) { confirmations.push(message); return confirm; }
   };
   if (withJitsi) window.JitsiMeetExternalAPI = class {
@@ -104,6 +105,7 @@ test("public demo join requires acknowledgement and sends no patient details or 
   assert.equal(meeting.options.userInfo.displayName, "Clinician");
   assert.equal(meeting.options.configOverwrite.startWithAudioMuted, true);
   assert.equal(meeting.options.configOverwrite.startSilent, false);
+  assert.equal(meeting.options.configOverwrite.p2p.enabled, false);
   assert.equal(meeting.options.configOverwrite.startWithVideoMuted, true);
   const serialized = JSON.stringify(meeting.options);
   assert.equal(serialized.includes("Synthetic Patient Secret"), false);
@@ -122,13 +124,22 @@ test("declining public demo consent prevents join and invitation requests", asyn
 test("public invitation requires acknowledgement and remains accessible when clipboard is used", async () => {
   const h = makeHarness();
   const guestUrl = `https://meet.jit.si/${"c".repeat(48)}`;
-  const audibleGuestUrl = guestUrl + "#config.startSilent=false&config.startWithAudioMuted=true";
+  const audibleGuestUrl = `https://demo.example/patient-call.html#room=${"c".repeat(48)}`;
   h.respondWith(async () => ({ guest_url: guestUrl, provider: "public_demo" }));
   await h.run("copyConsultationLink('consultation-opaque')");
   assert.equal(JSON.parse(h.requests[0].options.body).acknowledge_demo, true);
   assert.equal(h.element("consultationInvitePanel").hidden, false);
   assert.equal(h.element("consultationInviteLink").value, audibleGuestUrl);
   assert.deepEqual(h.clipboard, [audibleGuestUrl]);
+});
+
+test("a local clinician copies a reachable direct Jitsi invitation for the second device", async () => {
+  const h=makeHarness();
+  h.run('window.location.origin="http://127.0.0.1:8001"');
+  const guestUrl=`https://meet.jit.si/${"c".repeat(48)}`;
+  h.respondWith(async()=>({guest_url:guestUrl,provider:"public_demo"}));
+  await h.run("copyConsultationLink('consultation-opaque')");
+  assert.equal(h.element("consultationInviteLink").value,guestUrl+"#config.startSilent=false&config.startWithAudioMuted=true&config.p2p.enabled=false");
 });
 
 test("leaving while join request is pending prevents a late iframe and clears the call", async () => {

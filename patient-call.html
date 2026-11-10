@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Aarogya Drishti · Patient call</title><link rel="stylesheet" href="/styles.css"></head>
+<body><main class="patient-call-page"><p class="eyebrow">AAROGYA DRISHTI</p><h1>Join your demonstration call</h1><p>డెమో వీడియో సంప్రదింపులో చేరండి</p>
+<div class="consultation-notice"><strong>Public Jitsi demonstration · synthetic cases only</strong><p>The clinician must start the room and sign into Jitsi. This link grants access to the room; share it only with the intended participant. No app account is required here.</p><p>కల్పిత వివరాలతో డెమో కోసం మాత్రమే. వైద్యుడు ముందుగా గదిని ప్రారంభించాలి.</p></div>
+<p>Keep Chrome in the foreground. Use the normal Join meeting option with audio. Your microphone starts muted; use Jitsi’s microphone button when you want to speak.</p>
+<button id="patientJoin" type="button" class="button primary">Join demonstration / డెమోలో చేరండి</button> <button id="patientLeave" type="button" class="button secondary" hidden>Leave call / కాల్ ముగించండి</button>
+<p id="patientCallStatus" role="status" aria-live="polite"></p><p><a id="patientExternal" target="_blank" rel="noopener noreferrer" hidden>Open directly in Jitsi / Jitsi లో తెరవండి</a></p>
+<div id="patientVideo" class="patient-video"></div><div id="patientDiagnostics"></div><p class="muted">The stream check measures traffic on this device. Ask the clinician to speak while checking; traffic alone does not prove that speech is audible.</p>
+</main><script src="/call-diagnostics.js" defer></script><script src="/patient-call.js" defer></script></body></html>

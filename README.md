@@ -4,18 +4,22 @@ MedGemma 1.5 4B local inference integration and setup: [MEDGEMMA_SETUP.md](MEDGE
 
 To present the full app on another device, run `python share_demo.py` and use its temporary HTTPS address. See [SHARE_DEMO.md](SHARE_DEMO.md) for account access, fictional demo data and availability limits.
 
-A mobile-first, installable web prototype for a community oral-health screening and care-coordination workflow. It uses only Python's standard library and browser APIs; no paid service or external runtime package is required.
+A mobile-first, installable web prototype for a community oral-health screening and care-coordination workflow. The core application uses Python's standard library and browser APIs. Optional local MedGemma inference has its own Python packages and gated model download; Jitsi video needs a meeting service. A native Android/iOS package has not been built.
+
+See the [evaluation mapping and demonstration runbook](docs/EVALUATION_READINESS.md), [architecture and operational boundaries](docs/ARCHITECTURE.md), and [API/database reference](docs/API_DATABASE.md). The prototype makes no clinical-validation or prize-eligibility claim.
 
 ## Current scope
 
 - Sign-in with local user accounts, role checks, a signed HTTP-only session cookie, same-origin write checks, and server-side input validation. Health workers are scoped to records they created; clinician review and administrator access use separate roles.
-- SQLite records for patients, screenings, clinician reviews, referrals, follow-ups, and an administrator-visible audit log with record-view events. Duplicate patient identities are guarded by a normalized unique database key.
-- Clinician/admin consultation appointments with unpredictable, patient-independent Jitsi room names, short-lived room-scoped JWTs, and an explicitly started embedded call. The video area stays unavailable until a private Jitsi domain and matching JWT credentials are configured.
+- SQLite records for patients, screenings, clinician reviews, referrals, follow-ups, diagnostics, treatment progress, specialist escalation, source-linked AI reviews and an administrator-visible audit log. Duplicate patient identities are guarded by a normalized unique database key.
+- Patient-specific care stages, immutable linked progress updates, explicit AI disagreement/override and a printable patient summary with a privacy confirmation. These record clinician-authored demonstration information and generate no automatic treatment or diagnostic instructions.
+- Clinician/admin consultation appointments with unpredictable, patient-independent Jitsi room names and an explicitly started call. Private mode uses configured JWT credentials; explicitly selected public Jitsi mode supports synthetic demonstrations with the doctor's own host sign-in. Bridge routing and local media diagnostics are implemented, but the reported patient audio problem has not been confirmed resolved by a real two-person call.
 - Duplicate patient warning, patient consent confirmation, private image storage outside the public web root, and protected image routes.
 - Mobile-friendly patient registration and navigation, phone camera capture through the file picker, English and Telugu interface labels, and installable PWA shell.
-- Limited offline workflow for new patient registrations: encrypted IndexedDB drafts can be manually synchronized by the same authenticated health-worker account. Offline screening photos and existing-record browsing are not supported.
+- Encrypted offline registration and oral-photo drafts, with minimum patient choices cached inside the unlocked worker vault. A photo can reference an existing permitted patient or a pending registration. Explicit same-worker synchronization sends registrations before photos and safely retries acknowledged operations. Full existing-record browsing, clinician actions, AI and video remain online.
 - Image upload checks for file type, dimensions, megapixel limit, and file size. The browser also checks approximate brightness and contrast. These checks do not identify disease or guarantee clinical image quality.
-- The AI endpoint runs local MedGemma only after a verified checkpoint installation. Missing models and failed inference return explicit errors. Generated text is labelled experimental and unvalidated; no model accuracy or risk score is fabricated.
+- Local MedGemma runs only after a verified checkpoint installation, using the original checkpoint in bfloat16 precision. A background job reports actual status and persists successful source text separately from clinical assessment, with its model, generation audit and execution provenance. Missing models and failed inference produce explicit errors. Generated text is experimental and unvalidated; no model accuracy or risk score is fabricated.
+- Seven project-owner supplied visual references have neutral captions and a full-image dialog in the web/PWA interface. They are public presentation assets, not a labeled clinical dataset.
 
 ## Run locally on Windows
 
@@ -33,9 +37,13 @@ Open <http://127.0.0.1:8000>. The first command prompts for a password without p
 
 Records and uploaded images are stored in `.private-data/` by default. Set `AAROGYA_DATA_DIR` to a protected location to move them. Back up this directory only to a location approved for health information. Never commit it.
 
-## Offline patient registration drafts
+## Offline registration and oral-photo drafts
 
-On a health worker's first online sign-in, enter an offline drafts passphrase of at least 12 characters to create the device vault. Enter the same username and passphrase and choose **Open offline drafts** to unlock it while offline. Only new patient registration forms can be saved offline; screening photos, existing-patient records, reviews, referrals, and consultations are not available in offline mode. The app queues a registration only when the browser reports that it is offline. When connected, sign in with the same health-worker account, unlock the same vault passphrase, and choose **Sync drafts now**. The server validates the current session and role, and safely replays the same operation ID if a response was lost.
+On a health worker's first online sign-in, enter an offline drafts passphrase of at least 12 characters to create the device vault. Load Patients once to encrypt the permitted minimum patient choices. Enter the same username and passphrase and choose **Open offline drafts** to unlock it offline. The passphrase is chosen by you; there is no default. Each browser/device/origin has its own vault.
+
+In Patients, create an offline registration or use an encrypted cached patient choice, then save a consented oral-photo draft through **Encrypted offline oral-photo capture**. The photo and notes remain encrypted on that device. The normal online screening form continues to require a connection. Full existing medical records, clinician reviews, referrals, AI and consultations are not available offline.
+
+Reconnect and sign in as the same worker with the same vault passphrase. **Sync drafts now** sends registration drafts; **Sync registrations, then photographs** resolves registrations before uploading queued photos. The server checks session, ownership, consent and operation identity. A lost response can be retried without a duplicate, while conflicts remain queued for review. A matched server acknowledgement is required before removing a photo draft.
 
 Draft payloads are encrypted with Web Crypto AES-GCM and PBKDF2 before IndexedDB storage; the passphrase and derived key are not stored. This is not a security certification. Browser storage is best-effort and can be cleared or evicted, so reconnect and sync promptly. If a server conflict occurs, the draft remains encrypted until you resolve or explicitly discard it. This prototype does not sync drafts in the background, across devices, or without a live server session.
 
@@ -61,9 +69,11 @@ Jitsi's Docker deployment needs a production host with the Jitsi `PUBLIC_URL`, H
 
 ## Evaluation status and limits
 
-The supplied AAROHAN evaluation rules require a trained model, documented dataset provenance and licenses, patient-separated training/validation/testing, a saved checkpoint, confusion matrix and metrics, hidden-data evaluation, secure deployment, and end-to-end testing. An official MedGemma foundation checkpoint is installed and runs locally. This workspace still has no task-specific labeled oral-health dataset, patient-separated evaluation splits, confusion matrix, required performance metrics or independent clinical validation. A synthetic runtime check does not supply that evidence. This prototype remains **not for clinical use**.
+The supplied presentation DOCX has seven criteria totaling 100 marks and requires advisory-only AI during the demonstration; see the exact [criterion mapping](docs/EVALUATION_READINESS.md). The separately supplied 12 November final-rule PDF also asks for dataset/model evidence, confusion matrix and metrics, hidden-data examination, security and end-to-end testing. They are distinct sources. An official MedGemma foundation checkpoint is installed and runs locally, but this workspace has no task-specific labeled oral-health evaluation set, confusion matrix, required performance metrics or independent clinical validation. A synthetic runtime check supplies execution evidence only. This prototype remains **not for clinical use** and does not claim mandatory eligibility has been met.
 
-Other production requirements remain before deployment with real patient information: security and privacy review, encrypted server storage and transport, stronger operational access controls, clinician and field-worker usability validation, offline screening/photo capture and broader synchronization, backup/recovery, and an HTTPS hosting environment. The PWA caches only its public interface shell; server patient records and images are never cached for offline browsing.
+Before any deployment with real patient information, security/privacy review, protected server storage and transport, operational access controls, clinician/worker usability testing, backup/recovery and reviewed hosting remain necessary. Server SQLite/uploads are not encrypted by the application at rest. The PWA cache holds public interface/reference assets; explicitly prepared offline patient choices and drafts are encrypted separately in IndexedDB. See [storage and backup boundaries](docs/ARCHITECTURE.md).
+
+Temporary HTTPS sharing depends on the host PC and tunnel remaining online; permanent hosting is not configured. The Docker/Caddy preview has not been built/run in this workspace, and a native mobile wrapper is not supplied. Actual two-way Jitsi audio still requires verification with doctor and patient on separate devices.
 
 The built-in HTTP server is for localhost development only. Do not expose it directly to the internet. A live deployment needs a production WSGI/ASGI server behind HTTPS, managed secrets, protected persistent storage, backup policy, and security review.
 

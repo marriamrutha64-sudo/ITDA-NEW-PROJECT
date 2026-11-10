@@ -1,0 +1,32 @@
+{
+  "checked_at_utc": "2026-11-10T14:07:06+00:00",
+  "python": {
+    "command": ".medgemma-venv\\Scripts\\python.exe -m unittest discover -s tests -q",
+    "tests": 92,
+    "passed": 92,
+    "duration_seconds": 21.835
+  },
+  "javascript": {
+    "command": "node --test tests/*.test.cjs",
+    "tests": 79,
+    "passed": 79
+  },
+  "desktop_visual_checks": [
+    "Seven supplied images render with readable labels",
+    "Care journey loads patient selection and saved stages",
+    "Hidden login view and role-restricted navigation are respected after CSS correction"
+  ],
+  "real_ai_check": "async-ai-runtime-check.json",
+  "scope": "Synthetic/test fixtures and runtime evidence; no clinical accuracy measured",
+  "not_verified": [
+    "Actual two-device spoken audio in both directions",
+    "Clinical AI performance and required dataset/hidden-set evidence",
+    "Permanent hosting and production security review",
+    "Native APK build, community field usability and full accessibility audit"
+  ],
+  "private_data_excluded_from_git": true,
+  "public_https_static_check": {
+    "routes": 22,
+    "result": "All PWA shell and reference-image responses match the local files byte-for-byte"
+  }
+}
