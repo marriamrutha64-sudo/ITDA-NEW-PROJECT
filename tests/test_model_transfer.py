@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import json
 import unittest
 from unittest.mock import patch
 
@@ -35,3 +36,13 @@ class ModelTransferTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 model_transfer.download_shard("https://huggingface.co/test", target, 3)
             self.assertFalse(target.exists())
+
+    def test_truncated_partial_does_not_reuse_completed_chunks(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(model_transfer, "get_token", return_value="test-only"), patch.object(model_transfer.requests, "get", return_value=self.response()) as request:
+            target = Path(directory) / "weights.safetensors"
+            partial = target.with_suffix(".safetensors.partial")
+            partial.write_bytes(b"a")
+            partial.with_suffix(".partial.json").write_text(json.dumps({"url": "https://huggingface.co/test", "size": 3, "chunk_size": 8 * 1024 * 1024, "completed": [0]}))
+            model_transfer.download_shard("https://huggingface.co/test", target, 3)
+            self.assertEqual(target.read_bytes(), b"abc")
+            request.assert_called_once()

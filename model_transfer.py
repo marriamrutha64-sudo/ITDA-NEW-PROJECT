@@ -1,5 +1,5 @@
 """Resumable HTTP range transfer for large, official Hugging Face model shards."""
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 import json
 from pathlib import Path
 import time
@@ -17,10 +17,16 @@ def download_shard(url, target, size, workers=8):
     chunk_size = 8 * 1024 * 1024
     count = (size + chunk_size - 1) // chunk_size
     completed = set()
-    if partial.exists() and ledger.exists():
-        record = json.loads(ledger.read_text())
-        if record.get("url") == url and record.get("size") == size and record.get("chunk_size") == chunk_size:
-            completed = set(record["completed"])
+    if partial.exists() and partial.stat().st_size == size and ledger.exists():
+        try:
+            record = json.loads(ledger.read_text())
+            indices = record.get("completed", [])
+            if (record.get("url") == url and record.get("size") == size
+                    and record.get("chunk_size") == chunk_size and isinstance(indices, list)
+                    and all(type(i) is int and 0 <= i < count for i in indices)):
+                completed = set(indices)
+        except (OSError, ValueError, TypeError):
+            pass
     if not completed:
         with partial.open("wb") as stream:
             stream.truncate(size)
@@ -63,10 +69,23 @@ def download_shard(url, target, size, workers=8):
     print(f"Downloading {target.name}: {len(completed)}/{count} chunks complete", flush=True)
     with ThreadPoolExecutor(max_workers=workers) as pool:
         tasks = [pool.submit(fetch, i) for i in range(count) if i not in completed]
+        first_error = None
         for task in as_completed(tasks):
-            completed.add(task.result())
+            try:
+                index = task.result()
+            except CancelledError:
+                continue
+            except Exception as error:
+                if first_error is None:
+                    first_error = error
+                    for pending in tasks:
+                        pending.cancel()
+                continue
+            completed.add(index)
             checkpoint()
             if len(completed) % 8 == 0 or len(completed) == count:
                 print(f"{target.name}: {len(completed)}/{count} chunks verified by byte range", flush=True)
+        if first_error is not None:
+            raise first_error
     partial.replace(target)
     # Keep the resumability ledger for troubleshooting; it contains no credentials.
