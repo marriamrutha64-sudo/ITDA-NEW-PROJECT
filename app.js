@@ -284,6 +284,7 @@ async function joinConsultation(id) {
       jwt:data.jwt,
       userInfo:{displayName:"Clinician"},
       configOverwrite:{
+        startSilent:false,
         startWithAudioMuted:true,
         startWithVideoMuted:true,
         prejoinConfig:{enabled:true},
@@ -372,8 +373,9 @@ async function copyConsultationLink(id) {
   if(state.videoProvider==="public_demo"&&!window.confirm(t("acknowledgeVideoDemo"))) return;
   try {
     const data=await api(`/api/consultations/${encodeURIComponent(id)}/invite`,{method:"POST",body:JSON.stringify({acknowledge_demo:state.videoProvider==="public_demo"})});
-    $("consultationInvitePanel").hidden=false; $("consultationInviteLink").value=data.guest_url;
-    try {await navigator.clipboard.writeText(data.guest_url);showToast(t("invitationCopied"));}
+    const guestUrl=data.provider==="public_demo"?data.guest_url.split("#")[0]+"#config.startSilent=false&config.startWithAudioMuted=true":data.guest_url;
+    $("consultationInvitePanel").hidden=false; $("consultationInviteLink").value=guestUrl;
+    try {await navigator.clipboard.writeText(guestUrl);showToast(t("invitationCopied"));}
     catch {showToast(t("invitationReady"));}
   } catch(err) { showToast(err.message||t("invitationCopyError")); }
 }

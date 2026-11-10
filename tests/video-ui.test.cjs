@@ -103,6 +103,7 @@ test("public demo join requires acknowledgement and sends no patient details or 
   assert.equal(meeting.options.jwt, undefined);
   assert.equal(meeting.options.userInfo.displayName, "Clinician");
   assert.equal(meeting.options.configOverwrite.startWithAudioMuted, true);
+  assert.equal(meeting.options.configOverwrite.startSilent, false);
   assert.equal(meeting.options.configOverwrite.startWithVideoMuted, true);
   const serialized = JSON.stringify(meeting.options);
   assert.equal(serialized.includes("Synthetic Patient Secret"), false);
@@ -121,12 +122,13 @@ test("declining public demo consent prevents join and invitation requests", asyn
 test("public invitation requires acknowledgement and remains accessible when clipboard is used", async () => {
   const h = makeHarness();
   const guestUrl = `https://meet.jit.si/${"c".repeat(48)}`;
+  const audibleGuestUrl = guestUrl + "#config.startSilent=false&config.startWithAudioMuted=true";
   h.respondWith(async () => ({ guest_url: guestUrl, provider: "public_demo" }));
   await h.run("copyConsultationLink('consultation-opaque')");
   assert.equal(JSON.parse(h.requests[0].options.body).acknowledge_demo, true);
   assert.equal(h.element("consultationInvitePanel").hidden, false);
-  assert.equal(h.element("consultationInviteLink").value, guestUrl);
-  assert.deepEqual(h.clipboard, [guestUrl]);
+  assert.equal(h.element("consultationInviteLink").value, audibleGuestUrl);
+  assert.deepEqual(h.clipboard, [audibleGuestUrl]);
 });
 
 test("leaving while join request is pending prevents a late iframe and clears the call", async () => {
