@@ -17,7 +17,11 @@ $env:AAROGYA_MEDGEMMA_MODEL_DIR = "$PWD\models\medgemma-1.5-4b-it"
 python app.py
 ```
 
-Keep Hugging Face tokens in the local login credential store; do not paste them into chat or Git. Weights are excluded from Git. The download requires authenticated model access. Model inference uses local files only and disables Hugging Face network access in the worker.
+Keep Hugging Face tokens in the local login credential store; do not paste them into chat or Git. Weights are excluded from Git. The download requires authenticated model access. The installer pins the upstream checkpoint revision and verifies file sizes and published LFS SHA-256 checksums before writing its installation manifest. The app stays unavailable until that manifest and all listed files are present. Model inference uses local files only and disables Hugging Face network access in the worker.
+
+On Windows, the app automatically finds the verified model in `models/medgemma-1.5-4b-it` and the interpreter in `.medgemma-venv/Scripts/python.exe`. The environment variables above override those defaults.
+
+For a resumable installation followed by a synthetic inference check, run `.\.medgemma-venv\Scripts\python.exe -u setup_medgemma.py`. The local check report is written to `.private-data/qa/medgemma-smoke.json`. It proves only whether this computer completed inference on a plain gray image; it does not establish clinical performance. Large weights download in parallel 8 MiB ranges, with completed chunks recorded so interrupted downloads can resume.
 
 This computer has 16 GB RAM and Intel integrated graphics. The worker uses bfloat16 weights to reduce memory requirements. CPU inference may still exceed available memory or the five-minute request limit. A compatible CUDA GPU host is preferable; successful inference has not been demonstrated here. Python 3.15 is the current app interpreter, so inference dependencies use a separate Python 3.12 environment.
 

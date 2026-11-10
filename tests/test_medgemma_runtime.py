@@ -21,6 +21,9 @@ class MedGemmaTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             model = Path(directory)
             (model / "config.json").write_text("{}")
+            (model / "tokenizer.json").write_text("{}")
+            (model / "weights.safetensors").write_bytes(b"test-fixture")
+            (model / "installation.json").write_text(json.dumps({"model": runtime.MODEL_ID, "revision": runtime.MODEL_REVISION, "files": {"config.json": 2, "tokenizer.json": 2, "weights.safetensors": 12}}))
             interpreter = model / "python.exe"
             interpreter.touch()
             environment = {"AAROGYA_MEDGEMMA_MODEL_DIR": directory, "AAROGYA_MEDGEMMA_PYTHON": str(interpreter)}
@@ -30,6 +33,11 @@ class MedGemmaTests(unittest.TestCase):
                 self.assertIn("NOT FOR CLINICAL USE", result["notice"])
                 self.assertEqual(run.call_args.kwargs["env"]["HF_HUB_OFFLINE"], "1")
                 self.assertEqual(run.call_args.kwargs["timeout"], 300)
+
+    def test_partial_download_is_not_advertised_as_available(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"AAROGYA_MEDGEMMA_MODEL_DIR": directory}):
+            (Path(directory) / "config.json").write_text("{}")
+            self.assertFalse(runtime.status()["available"])
 
     def test_timeout_releases_concurrency_slot(self):
         with patch.object(runtime, "status", return_value={"available": True}), patch.dict(os.environ, {"AAROGYA_MEDGEMMA_PYTHON": "python", "AAROGYA_MEDGEMMA_MODEL_DIR": "model"}), patch.object(subprocess, "run", side_effect=subprocess.TimeoutExpired("python", 300)):
