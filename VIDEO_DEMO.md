@@ -35,6 +35,10 @@ The local app can remain bound to localhost because the patient joins the public
 
 ## Expected limits and recovery
 
+If the patient sees video but cannot hear the doctor, first check the doctor's microphone icon in the active Jitsi meeting. Embedded calls start muted intentionally. The app now reports microphone mute/availability and offers **Turn microphone on** after the meeting is joined. It requests activation only after that explicit click and waits for Jitsi's mute-state event; it does not claim the patient can hear merely because the microphone is unmuted.
+
+Allow microphone access and select the correct input in Jitsi Settings → Devices. The patient should raise media volume, check Bluetooth/speaker routing and ensure the browser tab is not muted. The patient's own microphone can stay muted while listening. When using the external Jitsi tab, perform these checks in that tab; the app cannot control it. Verify two-way audio with real participants after these checks.
+
 - Cancelling or completing an appointment changes the app record. It does **not** revoke an active Jitsi meeting, expire an already-copied public room URL, or eject participants. End/leave the meeting in Jitsi as well. Treat the invitation URL as private for the duration of the demo.
 - Public Jitsi meeting creation requires the doctor's own sign-in. The app cannot silently complete that account login. Guests can join without creating a public Jitsi account.
 - If embedded sign-in, camera, or microphone fails, use the available external meeting link in a separate browser tab, then check the browser permissions and device selection. Blocking third-party browser content can affect embedded meetings.

@@ -71,7 +71,21 @@
             <aside class="panel guide-panel"><p class="eyebrow">PRIVATE VIDEO</p><h2 data-i18n="consultationPrivacyTitle">A private room for each appointment</h2><p class="muted" data-i18n="consultationPrivacyCopy">Room names are random and contain no patient details. A clinician must start the call; recording controls are disabled in the meeting interface.</p><div class="safety-note"><b data-i18n="consultationGuestTitle">Patient access</b><p data-i18n="consultationGuestCopy">Use the copy invitation link action to share a guest link through an approved channel. The patient waits in the Jitsi lobby until admitted.</p></div></aside>
           </div>
           <section class="panel recent-panel"><div class="panel-heading"><div><p class="eyebrow">APPOINTMENTS</p><h2 data-i18n="consultationRecords">Consultation appointments</h2></div><span id="consultationCount" class="count-label"></span></div><div id="consultationList" class="record-list"></div></section>
-          <section class="panel consultation-call-panel" id="consultationCallPanel" hidden><div class="panel-heading"><div><p class="eyebrow">VIDEO MEETING</p><h2 data-i18n="consultationInProgress">Consultation call</h2></div><button id="closeConsultationCall" class="button secondary" type="button" data-i18n="leaveCall">Leave call</button></div><p class="muted" data-i18n="consultationNoRecord">Use synthetic cases only in public demo mode.</p><p id="consultationCallState" role="status" aria-live="polite"></p><a id="consultationExternalLink" class="button secondary" target="_blank" rel="noopener noreferrer" hidden>Open Jitsi room / host sign-in</a><div id="jitsiFrame" class="jitsi-frame"></div></section>
+          <section class="panel consultation-call-panel" id="consultationCallPanel" hidden>
+            <div class="panel-heading"><div><p class="eyebrow">VIDEO MEETING</p><h2 data-i18n="consultationInProgress">Consultation call</h2></div><button id="closeConsultationCall" class="button secondary" type="button" data-i18n="leaveCall">Leave call</button></div>
+            <p class="muted" data-i18n="consultationNoRecord">Use synthetic cases only in public demo mode.</p>
+            <p id="consultationCallState" role="status" aria-live="polite"></p>
+            <div class="consultation-notice"><p id="consultationMicrophoneStatus" role="status" aria-live="polite"></p><button id="consultationUnmuteButton" class="button primary" type="button" data-i18n="turnMicrophoneOn" disabled>Turn microphone on</button>
+              <details><summary>Patient cannot hear? Check audio</summary><ol>
+                <li>Clinician: unmute the microphone in the active Jitsi meeting and allow microphone access. In Jitsi Settings → Devices, choose the correct microphone and check its input level while speaking.</li>
+                <li>Patient: join the same room, wait for admission if required, raise media volume, and check speaker/Bluetooth/headphone routing. Check that the browser tab is not muted.</li>
+                <li>Keep one active meeting per device and use headphones for a two-device test.</li>
+                <li>If Jitsi is open in a separate tab, use that tab’s microphone and device controls. This page cannot monitor or unmute the separate tab.</li>
+              </ol></details>
+            </div>
+            <a id="consultationExternalLink" class="button secondary" target="_blank" rel="noopener noreferrer" hidden>Open Jitsi room / host sign-in</a>
+            <div id="jitsiFrame" class="jitsi-frame"></div>
+          </section>
         </section>
         <section class="page" id="page-audit"><div class="page-heading"><div><p class="eyebrow" data-i18n="systemActivity">SYSTEM ACTIVITY</p><h1 data-i18n="auditLog">Audit log</h1><p class="muted" data-i18n="auditDescription">Recent record activity metadata. Clinical details are not displayed here.</p></div></div><section class="panel patient-list-panel"><div class="table-scroll"><table><thead><tr><th data-i18n="auditActor">ACTOR</th><th data-i18n="auditAction">ACTION</th><th data-i18n="auditEntityType">TYPE</th><th data-i18n="auditEntityId">RECORD ID</th><th data-i18n="auditTime">TIME</th></tr></thead><tbody id="auditBody"></tbody></table></div><div id="auditEmpty" class="empty-state" hidden><p data-i18n="auditEmpty">No audit activity recorded yet.</p></div></section></section>
       </div><footer class="app-footer"><span>© 2026 Aarogya Drishti</span><span data-i18n="localPrototype">Local prototype • NOT FOR CLINICAL USE</span></footer>

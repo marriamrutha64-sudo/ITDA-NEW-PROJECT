@@ -35,10 +35,14 @@ function makeHarness({ withJitsi = true, confirm = true } = {}) {
       this.events = new Map();
       this.commands = [];
       this.disposed = false;
+      this.audioMuted = true;
+      this.audioAvailable = true;
       meetings.push(this);
     }
     addListener(name, callback) { this.events.set(name, callback); }
     executeCommand(name) { this.commands.push(name); }
+    async isAudioMuted() { return this.audioMuted; }
+    async isAudioAvailable() { return this.audioAvailable; }
     dispose() { this.disposed = true; }
   };
   const context = vm.createContext({
@@ -77,6 +81,14 @@ function makeHarness({ withJitsi = true, confirm = true } = {}) {
     run, element, requests, meetings, scripts, timers, confirmations, clipboard,
     respondWith(callback) { responder = callback; }
   };
+}
+
+async function enterMeeting(h, id = "consultation-opaque") {
+  await h.run(`joinConsultation(${JSON.stringify(id)})`);
+  const meeting = h.meetings.at(-1);
+  await meeting.events.get("videoConferenceJoined")({});
+  await h.run("Promise.resolve()");
+  return meeting;
 }
 
 test("public demo join requires acknowledgement and sends no patient details or JWT to Jitsi", async () => {
@@ -152,14 +164,12 @@ test("Jitsi script timeout rejects the pending load and allows retry", async () 
   assert.equal(h.run("state.jitsiScriptPromise"), null);
 });
 
-test("meeting permission and network errors update the visible call status", async () => {
+test("meeting camera and network errors update the visible call status", async () => {
   const h = makeHarness();
   await h.run("joinConsultation('consultation-opaque')");
   const meeting = h.meetings[0];
-  for (const event of ["cameraError", "micError"]) {
-    meeting.events.get(event)({});
-    assert.match(h.element("consultationCallState").textContent, /camera or microphone/i);
-  }
+  meeting.events.get("cameraError")({});
+  assert.match(h.element("consultationCallState").textContent, /camera/i);
   for (const event of ["errorOccurred", "peerConnectionFailure"]) {
     meeting.events.get(event)({});
     assert.match(h.element("consultationCallState").textContent, /connection failed/i);
@@ -169,6 +179,144 @@ test("meeting permission and network errors update the visible call status", asy
   h.run("closeConsultationCall()");
   assert.equal(meeting.disposed, true);
   assert.deepEqual(meeting.commands, ["hangup"]);
+});
+
+test("joined meeting reports its muted microphone without activating it", async () => {
+  const h = makeHarness();
+  const meeting = await enterMeeting(h);
+  assert.equal(h.run("state.callAudio.joined"), true);
+  assert.equal(h.run("state.callAudio.muted"), true);
+  assert.equal(h.run("state.callAudio.available"), true);
+  assert.match(h.element("consultationMicrophoneStatus").textContent, /muted|microphone off/i);
+  assert.equal(h.element("consultationUnmuteButton").disabled, false);
+  assert.deepEqual(meeting.commands, []);
+});
+
+test("microphone mute and availability events update the visible audio state", async () => {
+  const h = makeHarness();
+  const meeting = await enterMeeting(h);
+  meeting.events.get("audioMuteStatusChanged")({ muted: false });
+  assert.equal(h.run("state.callAudio.muted"), false);
+  assert.match(h.element("consultationMicrophoneStatus").textContent, /microphone.*on|unmuted/i);
+  meeting.events.get("audioMuteStatusChanged")({ muted: true });
+  assert.equal(h.run("state.callAudio.muted"), true);
+  assert.match(h.element("consultationMicrophoneStatus").textContent, /muted|microphone off/i);
+  meeting.events.get("audioAvailabilityChanged")({ available: false });
+  assert.equal(h.run("state.callAudio.available"), false);
+  assert.match(h.element("consultationMicrophoneStatus").textContent, /unavailable|not available|cannot access|permission|blocked/i);
+  meeting.events.get("audioAvailabilityChanged")({ available: true });
+  assert.equal(h.run("state.callAudio.available"), true);
+  assert.deepEqual(meeting.commands, []);
+});
+
+test("explicit microphone action unmutes only a confirmed muted microphone", async () => {
+  const h = makeHarness();
+  const meeting = await enterMeeting(h);
+  await h.run("turnConsultationMicrophoneOn()");
+  assert.deepEqual(meeting.commands, ["toggleAudio"]);
+  assert.equal(h.run("state.callAudio.pending"), false);
+  meeting.audioMuted = false;
+  meeting.events.get("audioMuteStatusChanged")({ muted: false });
+  await h.run("turnConsultationMicrophoneOn()");
+  assert.deepEqual(meeting.commands, ["toggleAudio"], "an already unmuted microphone must not be toggled off");
+  assert.equal(h.run("state.callAudio.pending"), false);
+});
+
+test("unavailable microphone does not activate devices through the explicit action", async () => {
+  const h = makeHarness();
+  const meeting = await enterMeeting(h);
+  meeting.audioAvailable = false;
+  meeting.events.get("audioAvailabilityChanged")({ available: false });
+  await h.run("turnConsultationMicrophoneOn()");
+  assert.deepEqual(meeting.commands, []);
+  assert.equal(h.run("state.callAudio.pending"), false);
+});
+
+test("microphone access errors have a specific visible message and do not activate audio", async () => {
+  const h = makeHarness();
+  const meeting = await enterMeeting(h);
+  meeting.events.get("micError")({ type: "gum.permission_denied", message: "Microphone permission denied" });
+  assert.equal(h.run("state.callAudio.available"), false);
+  assert.match(h.element("consultationMicrophoneStatus").textContent, /microphone/i);
+  assert.match(h.element("consultationMicrophoneStatus").textContent, /permission|allow|blocked|access|unavailable/i);
+  assert.doesNotMatch(h.element("consultationMicrophoneStatus").textContent, /camera or microphone/i);
+  assert.deepEqual(meeting.commands, []);
+});
+
+test("leaving during an explicit microphone check prevents late device activation", async () => {
+  const h = makeHarness();
+  const oldMeeting = await enterMeeting(h, "old-consultation");
+  let finishMuteCheck;
+  oldMeeting.isAudioMuted = () => new Promise(resolve => { finishMuteCheck = resolve; });
+  const pending = h.run("turnConsultationMicrophoneOn()");
+  assert.equal(h.run("state.callAudio.pending"), true);
+  h.run("closeConsultationCall()");
+  const currentMeeting = await enterMeeting(h, "current-consultation");
+  const currentStatus = h.element("consultationMicrophoneStatus").textContent;
+  finishMuteCheck(true);
+  await pending;
+  assert.deepEqual(oldMeeting.commands, ["hangup"]);
+  assert.deepEqual(currentMeeting.commands, []);
+  assert.equal(h.run("state.jitsiApi"), currentMeeting);
+  assert.equal(h.run("state.callAudio.pending"), false);
+  assert.equal(h.element("consultationMicrophoneStatus").textContent, currentStatus);
+});
+
+test("a newer unmute event prevents a pending explicit action from toggling audio off", async () => {
+  const h = makeHarness();
+  const meeting = await enterMeeting(h);
+  let finishMuteCheck;
+  meeting.isAudioMuted = () => new Promise(resolve => { finishMuteCheck = resolve; });
+  const pending = h.run("turnConsultationMicrophoneOn()");
+  meeting.events.get("audioMuteStatusChanged")({ muted: false });
+  finishMuteCheck(true);
+  await pending;
+  assert.equal(h.run("state.callAudio.muted"), false);
+  assert.equal(h.run("state.callAudio.pending"), false);
+  assert.deepEqual(meeting.commands, [], "a stale muted=true snapshot must not toggle an already unmuted microphone");
+});
+
+test("late microphone status queries from a disposed meeting cannot change the current call", async () => {
+  const h = makeHarness();
+  const oldMeeting = await enterMeeting(h, "old-consultation");
+  let finishMuteCheck;
+  let finishAvailabilityCheck;
+  oldMeeting.isAudioMuted = () => new Promise(resolve => { finishMuteCheck = resolve; });
+  oldMeeting.isAudioAvailable = () => new Promise(resolve => { finishAvailabilityCheck = resolve; });
+  const pending = h.run("refreshConsultationAudio(state.jitsiApi,state.callGeneration)");
+  h.run("closeConsultationCall()");
+  const currentMeeting = await enterMeeting(h, "current-consultation");
+  const currentStatus = h.element("consultationMicrophoneStatus").textContent;
+  finishMuteCheck(false);
+  finishAvailabilityCheck(false);
+  await pending;
+  assert.equal(h.run("state.jitsiApi"), currentMeeting);
+  assert.equal(h.run("state.callAudio.muted"), true);
+  assert.equal(h.run("state.callAudio.available"), true);
+  assert.equal(h.element("consultationMicrophoneStatus").textContent, currentStatus);
+  assert.deepEqual(currentMeeting.commands, []);
+});
+
+test("newer microphone events take precedence over pending status query results", async () => {
+  const h = makeHarness();
+  const meeting = await enterMeeting(h);
+  let finishMuteCheck;
+  let finishAvailabilityCheck;
+  meeting.isAudioMuted = () => new Promise(resolve => { finishMuteCheck = resolve; });
+  meeting.isAudioAvailable = () => new Promise(resolve => { finishAvailabilityCheck = resolve; });
+  const pending = h.run("refreshConsultationAudio(state.jitsiApi,state.callGeneration)");
+  meeting.events.get("audioMuteStatusChanged")({ muted: false });
+  meeting.events.get("audioAvailabilityChanged")({ available: false });
+  meeting.events.get("micError")({ type: "gum.permission_denied", message: "Microphone permission denied" });
+  finishMuteCheck(true);
+  finishAvailabilityCheck(true);
+  await pending;
+  assert.equal(h.run("state.callAudio.muted"), false, "stale query must not overwrite newer unmute event");
+  assert.equal(h.run("state.callAudio.available"), false, "stale query must not clear newer access error");
+  assert.equal(h.run("state.callAudio.error"), true);
+  assert.match(h.element("consultationMicrophoneStatus").textContent, /microphone/i);
+  assert.match(h.element("consultationMicrophoneStatus").textContent, /permission|allow|blocked|access|unavailable/i);
+  assert.deepEqual(meeting.commands, []);
 });
 
 test("events from a disposed meeting cannot alter or close a newer call", async () => {

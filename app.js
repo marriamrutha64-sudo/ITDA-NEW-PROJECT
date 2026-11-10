@@ -1,6 +1,7 @@
 const $ = (id) => document.getElementById(id);
 const state = { user: null, page: "home", patients: [], language: localStorage.getItem("adLanguage") || "en", imageUrl: null, toastTimer: 0, consultationsConfigured: false, jitsiApi: null, jitsiScriptPromise: null, offlineMode: false, vaultOwner: null, syncErrors: {}, syncingDrafts: false };
 Object.assign(state, {videoProvider:"private",callGeneration:0,activeConsultation:null});
+state.callAudio={joined:false,muted:null,available:null,pending:false};
 
 const translations = {
   en: { secureAccess:"SECURE ACCESS", signIn:"Sign in to your workspace", loginHelp:"Use your assigned account to access patient records.", username:"Username", password:"Password", localOnly:"Local demonstration. Do not enter real patient data until your deployment has been security-reviewed.", districtCare:"DISTRICT CARE", overview:"Overview", patients:"Patients", screening:"Oral screening", clinicalReview:"Clinical review", careCoordination:"Care coordination", connecting:"Connecting…", workspace:"Workspace", fieldWorkspace:"FIELD WORKSPACE", goodDay:"Good day", overviewSubtitle:"A clear view of patients moving through care.", registerPatient:"Register patient", researchNotice:"Research and screening support only", safetyCopy:"This application does not diagnose disease. A qualified clinician makes every clinical decision.", registeredPatients:"Registered patients", allRecords:"All records in this workspace", screeningsInQueue:"Screenings in queue", awaitingReview:"Awaiting clinical review", followUpsDue:"Follow-ups due", nextSevenDays:"Scheduled in the next 7 days", referralsOpen:"Open referrals", careInMotion:"Care coordination in motion", carePathway:"CARE PATHWAY", journeyTitle:"Patient journey", viewPatients:"View patients", registration:"Registration", identityHistory:"Identity and history", photoAssessment:"Photo and assessment", clinician:"Clinician", medicalReview:"Medical review", followUp:"Follow-up", continuityCare:"Continuity of care", journeyEmpty:"Register a patient to begin their care pathway.", modelReadiness:"MODEL READINESS", imageAnalysis:"Image analysis", notConfigured:"Not configured", modelCopy:"No validated model is installed. No predictions will be generated.", experimentalOnly:"Experimental research only", latestActivity:"LATEST ACTIVITY", recentPatients:"Recent patients", seeAll:"See all", patient:"PATIENT", patientId:"PATIENT ID", village:"VILLAGE", registered:"REGISTERED", noPatients:"No patients yet", noPatientsCopy:"Your registered patients will appear here.", registerFirst:"Register your first patient", careRecords:"CARE RECORDS", patientsSubtitle:"Register people and keep their care journey organized.", searchPatients:"Search patient name or ID", ageGender:"AGE / GENDER", patientsEmptyCopy:"Add a patient to start their screening and care record.", oralHealth:"ORAL HEALTH", screeningSubtitle:"Capture a photograph and document screening observations.", newScreening:"New screening", selectPatient:"Patient", healthWorker:"Health worker", areaObserved:"Area observed", selectArea:"Select area", symptomDuration:"Symptom duration", durationPlaceholder:"e.g. 2 weeks", screenNotes:"Screening notes", oralPhoto:"Oral photograph", photoQualityPrompt:"Choose a clear, well-lit image. Quality checks will appear here.", saveScreening:"Save screening", photoGuide:"PHOTO GUIDE", betterPhoto:"A better photo helps review", goodLight:"Use good light", goodLightCopy:"Bright, even light helps show the area clearly.", steadyFocus:"Hold steady and focus", steadyFocusCopy:"Keep the camera close enough to see details.", wholeArea:"Show the whole area", wholeAreaCopy:"Avoid fingers, shadows, blur and unrelated objects.", consentFirst:"Get consent first", consentCopy:"Explain the photograph and obtain patient consent.", noDiagnosis:"No automatic diagnosis", noDiagnosisCopy:"A qualified clinician must assess every finding. Image quality checks do not identify disease.", screeningRecords:"Screening records", clinicalOversight:"CLINICAL OVERSIGHT", reviewSubtitle:"Qualified medical officers document their independent assessment.", recordReview:"Record a review", medicalOfficer:"Medical officer", reviewStatus:"Review status", clinicalObservations:"Clinical observations", saveReview:"Save review", decisionSupport:"DECISION SUPPORT", clinicianAuthority:"Clinical decisions stay with the clinician", clinicianCopy:"This workspace records human review. It does not interpret images or recommend a diagnosis, biopsy, or treatment.", researchReminder:"Any experimental model output must be separately validated and must never replace professional judgment.", reviewRecords:"Review records", careSubtitle:"Track referrals, appointments and follow-up actions.", newReferral:"New referral", hospital:"Hospital / facility", department:"Department", referralReason:"Reason for referral", appointmentDate:"Appointment date", saveReferral:"Save referral", newFollowup:"Schedule follow-up", followupDate:"Follow-up date", followupNotes:"Notes", saveFollowup:"Schedule follow-up", careRecordsTitle:"Referrals and follow-ups", fullName:"Full name", age:"Age", gender:"Gender", mobile:"Mobile number", district:"District", medicalHistory:"Relevant medical history", currentSymptoms:"Current symptoms", consentRecord:"I confirm the patient has been informed about this record and consents to its use for this demonstration.", cancel:"Cancel", savePatient:"Save patient", localPrototype:"Local prototype • NOT FOR CLINICAL USE", noScreenings:"No screening records yet.", noReviews:"No clinical reviews recorded yet.", noCareRecords:"No referrals or follow-ups yet.", patientSaved:"Patient record saved.", screeningSaved:"Screening saved for clinician review.", reviewSaved:"Clinical review saved.", referralSaved:"Referral saved.", followupSaved:"Follow-up scheduled.", serverUnavailable:"Server unavailable. Your information was not confirmed as saved.", signInRequired:"Sign in to continue.", patientRequired:"Register a patient before continuing.", imageDimensions:"Image is too small to assess. Use a clear image at least 240 × 240 pixels.", imageNotUsable:"This file could not be read as a supported image.", imageReady:"Image format and dimensions look suitable. A person must still check focus, lighting and relevance.", imageCaution:"Image quality looks limited. Consider retaking it in better light and focus.", imageSizeLimit:"Choose an image smaller than 7 MB.", loadError:"Could not load this information.", serverOnline:"Local server connected", serverOffline:"Local server unavailable", syncing:"Loading workspace…", ageYears:"years", viewRecord:"Open", screeningCount:"screenings", reviewCount:"reviews", referralCount:"referrals", followupCount:"follow-ups", imageChecksOnly:"Format and dimensions checked • clinical quality needs a person’s review", signOut:"Sign out"
@@ -43,6 +44,14 @@ const consultationLabels = { en: {
 } };
 Object.assign(translations.en,{experimentalOnly:"No model installed"});
 Object.assign(consultationLabels.en, {
+  audioJoinFirst:"Join the meeting to check your microphone. Calls start muted; turn it on when ready to speak.",
+  audioMuted:"Microphone muted — the patient cannot hear your speech. Turn it on when ready.",
+  audioOn:"Microphone on. Check Jitsi’s input level while speaking; ask the patient to confirm they hear you.",
+  audioUnavailable:"Microphone unavailable. Allow microphone access in the Jitsi tab and select the correct input under Settings → Devices.",
+  audioUnknown:"Microphone status is unavailable. Check the microphone icon and input device inside Jitsi.",
+  audioRequest:"Microphone activation requested. Check the Jitsi/browser permission prompt; waiting for Jitsi to confirm.",
+  audioMicError:"Microphone access failed. Allow microphone permission in Jitsi and select the correct input device.",
+  turnMicrophoneOn:"Turn microphone on",
   consultationNeedsPatient:"No patients are registered in this workspace. Register a patient before scheduling. Use synthetic details for the public video demo.",
   consultationSubtitle:"Schedule a video appointment with a clinician.",
   consultationPrivacyTitle:"A separate room for each appointment",
@@ -289,9 +298,13 @@ async function joinConsultation(id) {
     });
     state.jitsiApi=external;
     $("consultationCallState").textContent=t("callReady");
-    const currentEvent=(callback)=>(...args)=>{if(state.jitsiApi===external&&generation===state.callGeneration)callback(...args);};
-    external.addListener("videoConferenceJoined",currentEvent(()=>{$("consultationCallState").textContent=t("callConnected");}));
-    for(const event of ["cameraError","micError"]) external.addListener(event,currentEvent(()=>{$("consultationCallState").textContent=t("callPermissionError");}));
+    renderConsultationAudio();
+    const currentEvent=(callback)=>(...args)=>{if(state.jitsiApi===external&&generation===state.callGeneration)return callback(...args);};
+    external.addListener("videoConferenceJoined",currentEvent(()=>{state.callAudio.joined=true;$("consultationCallState").textContent=t("callConnected");return refreshConsultationAudio(external,generation);}));
+    external.addListener("audioMuteStatusChanged",currentEvent(({muted})=>{if(typeof muted!=="boolean")return;state.callAudio.muteRevision=(state.callAudio.muteRevision||0)+1;state.callAudio.muted=muted;state.callAudio.activationRequested=false;if(!muted)state.callAudio.error=false;renderConsultationAudio();}));
+    external.addListener("audioAvailabilityChanged",currentEvent(({available})=>{if(typeof available!=="boolean")return;state.callAudio.availabilityRevision=(state.callAudio.availabilityRevision||0)+1;state.callAudio.available=available;if(available)state.callAudio.error=false;renderConsultationAudio();}));
+    external.addListener("micError",currentEvent(()=>{state.callAudio.availabilityRevision=(state.callAudio.availabilityRevision||0)+1;state.callAudio.available=false;state.callAudio.error=true;state.callAudio.activationRequested=false;$("consultationCallState").textContent=t("audioMicError");renderConsultationAudio();}));
+    external.addListener("cameraError",currentEvent(()=>{$("consultationCallState").textContent=t("callPermissionError");}));
     for(const event of ["errorOccurred","peerConnectionFailure"]) external.addListener(event,currentEvent(()=>{$("consultationCallState").textContent=t("callNetworkError");}));
     external.addListener("videoConferenceLeft",currentEvent(()=>closeConsultationCall(false)));
   } catch(err) {
@@ -300,8 +313,51 @@ async function joinConsultation(id) {
     if(state.page==="consultations"&&state.user) loadConsultations().catch(()=>{});
   }
 }
+function renderConsultationAudio() {
+  const audio=state.callAudio;
+  let message="audioUnknown";
+  if(!audio.joined)message="audioJoinFirst";
+  else if(audio.pending||audio.activationRequested)message="audioRequest";
+  else if(audio.muted===true)message="audioMuted";
+  else if(audio.muted===false)message="audioOn";
+  if(audio.available===false)message="audioUnavailable";
+  if(audio.error)message="audioMicError";
+  $("consultationMicrophoneStatus").textContent=state.jitsiApi?t(message):"";
+  $("consultationUnmuteButton").disabled=!state.jitsiApi||!audio.joined||audio.pending||audio.activationRequested||audio.available===false||audio.muted!==true;
+}
+async function refreshConsultationAudio(external,generation) {
+  const audio=state.callAudio, muteRevision=audio.muteRevision||0, availabilityRevision=audio.availabilityRevision||0;
+  const read=name=>{try{return Promise.resolve(external[name]());}catch(error){return Promise.reject(error);}};
+  const results=await Promise.allSettled([read("isAudioMuted"),read("isAudioAvailable")]);
+  if(state.jitsiApi!==external||generation!==state.callGeneration||state.callAudio!==audio)return;
+  if((audio.muteRevision||0)===muteRevision)audio.muted=results[0].status==="fulfilled"&&typeof results[0].value==="boolean"?results[0].value:null;
+  if((audio.availabilityRevision||0)===availabilityRevision){audio.available=results[1].status==="fulfilled"&&typeof results[1].value==="boolean"?results[1].value:null;if(audio.available===true)audio.error=false;}
+  renderConsultationAudio();
+}
+async function turnConsultationMicrophoneOn() {
+  const external=state.jitsiApi, generation=state.callGeneration, audio=state.callAudio;
+  if(!external||!audio.joined||audio.pending||audio.activationRequested||audio.available===false)return;
+  const muteRevision=audio.muteRevision||0;
+  audio.pending=true;renderConsultationAudio();
+  try {
+    const muted=await external.isAudioMuted();
+    if(state.jitsiApi!==external||state.callGeneration!==generation||state.callAudio!==audio)return;
+    if((audio.muteRevision||0)!==muteRevision)return;
+    if(muted===true&&audio.available!==false) {
+      audio.activationRequested=true;
+      external.executeCommand("toggleAudio");
+      audio.requestTimer=setTimeout(()=>{if(state.jitsiApi===external&&state.callGeneration===generation&&state.callAudio===audio){audio.activationRequested=false;renderConsultationAudio();}},5000);
+    } else if(muted===false) audio.muted=false;
+  } catch(error) {
+    if(state.jitsiApi===external&&state.callGeneration===generation){audio.error=true;audio.activationRequested=false;}
+  } finally {
+    if(state.jitsiApi===external&&state.callGeneration===generation&&state.callAudio===audio){audio.pending=false;renderConsultationAudio();}
+  }
+}
 function closeConsultationCall(leave=true) {
   state.callGeneration++; state.activeConsultation=null;
+  if(state.callAudio.requestTimer)clearTimeout(state.callAudio.requestTimer);
+  state.callAudio={joined:false,muted:null,available:null,pending:false};
   const external=state.jitsiApi; state.jitsiApi=null;
   if(external) {
     if(leave) { try { external.executeCommand("hangup"); } catch {} }
@@ -310,6 +366,7 @@ function closeConsultationCall(leave=true) {
   const panel=$("consultationCallPanel"); if(panel) panel.hidden=true;
   const frame=$("jitsiFrame"); if(frame) frame.replaceChildren();
   const externalLink=$("consultationExternalLink"); if(externalLink) {externalLink.hidden=true;externalLink.removeAttribute("href");}
+  renderConsultationAudio();
 }
 async function copyConsultationLink(id) {
   if(state.videoProvider==="public_demo"&&!window.confirm(t("acknowledgeVideoDemo"))) return;
@@ -418,6 +475,7 @@ async function boot() {
   translate(); $("loginForm").addEventListener("submit",handleLogin); $("patientForm").addEventListener("submit",submitPatient); $("screeningForm").addEventListener("submit",submitScreening); $("reviewForm").addEventListener("submit",saveReview); $("referralForm").addEventListener("submit",saveReferral); $("followupForm").addEventListener("submit",saveFollowup);
   $("unlockOfflineButton").addEventListener("click",openOfflineDraftMode); $("syncDraftsButton").addEventListener("click",syncOfflineDrafts);
   $("registerConsultPatient").addEventListener("click",openPatientDialog);
+  $("consultationUnmuteButton").addEventListener("click",turnConsultationMicrophoneOn);
   $("consultationForm").addEventListener("submit",createConsultation); $("closeConsultationCall").addEventListener("click",()=>closeConsultationCall()); const localNow=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16); $("consultationTime").min=localNow;
   $("newPatientButton").addEventListener("click",openPatientDialog); $("emptyRegisterButton").addEventListener("click",openPatientDialog); $("closePatientDialog").addEventListener("click",()=>$("patientDialog").close()); $("cancelPatient").addEventListener("click",()=>$("patientDialog").close()); $("oralImage").addEventListener("change",e=>qualityCheck(e.target.files[0])); $("patientSearch").addEventListener("input",renderPatients); $("languageButton").addEventListener("click",()=>{state.language=state.language==="en"?"te":"en";localStorage.setItem("adLanguage",state.language);translate(); if(state.user) goPage(state.page);});
   document.querySelectorAll("[data-page]").forEach(el=>el.addEventListener("click",()=>goPage(el.dataset.page))); document.querySelectorAll("[data-go]").forEach(el=>el.addEventListener("click",()=>{goPage(el.dataset.go);if(el.dataset.go==="patients")openPatientDialog();})); $("menuButton").addEventListener("click",()=>$("sidebar").classList.toggle("open")); $("closePatientRecord").addEventListener("click",()=>$("patientRecordDialog").close()); document.addEventListener("click",e=>{const button=e.target.closest("[data-open-patient]");if(button)openPatientRecord(button.dataset.openPatient);})
