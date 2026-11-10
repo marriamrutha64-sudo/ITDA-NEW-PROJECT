@@ -19,7 +19,7 @@ python app.py
 
 Keep Hugging Face tokens in the local login credential store; do not paste them into chat or Git. Weights are excluded from Git. The download requires authenticated model access. Model inference uses local files only and disables Hugging Face network access in the worker.
 
-This computer has 16 GB RAM and Intel integrated graphics. Full precision CPU inference may exceed available memory or the five-minute request limit. A compatible CUDA GPU host is preferable; successful inference has not been demonstrated here. Python 3.15 is the current app interpreter, so inference dependencies use a separate Python 3.12 environment.
+This computer has 16 GB RAM and Intel integrated graphics. The worker uses bfloat16 weights to reduce memory requirements. CPU inference may still exceed available memory or the five-minute request limit. A compatible CUDA GPU host is preferable; successful inference has not been demonstrated here. Python 3.15 is the current app interpreter, so inference dependencies use a separate Python 3.12 environment.
 
 ## App behavior
 
