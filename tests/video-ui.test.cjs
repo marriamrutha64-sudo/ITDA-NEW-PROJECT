@@ -56,7 +56,7 @@ function makeHarness({ withJitsi = true, confirm = true } = {}) {
     },
     localStorage: { getItem: () => null },
     navigator: { clipboard: { async writeText(value) { clipboard.push(value); } } },
-    FormData: class {},
+    FormData: class { append() {} },
     setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
     async fetch(url, options) {
@@ -191,3 +191,42 @@ test("events from a disposed meeting cannot alter or close a newer call", async 
   }
   assert.deepEqual(currentMeeting.commands, []);
 });
+
+test("appointment save uses the form captured before the browser clears currentTarget", async () => {
+  const h = makeHarness();
+  h.element("consultationTime").value = "2026-11-10T17:48";
+  h.element("consultPatient").value = "synthetic-patient";
+  h.element("consultationDuration").value = "15";
+  h.run(`var resetCount=0, refreshCount=0;
+    var submitButton={disabled:false};
+    var testEvent={preventDefault(){},currentTarget:{querySelector:()=>submitButton,reset(){resetCount++;}}};
+    loadPatients=async()=>{};loadConsultations=async()=>{refreshCount++;};`);
+  let finish;
+  h.respondWith(() => new Promise(resolve => { finish = resolve; }));
+  const pending = h.run("createConsultation(testEvent)");
+  h.run("testEvent.currentTarget=null");
+  finish({consultation:{id:"synthetic-appointment"}});
+  await pending;
+  assert.equal(h.run("resetCount"), 1);
+  assert.equal(h.run("refreshCount"), 1);
+  assert.equal(h.element("consultationFormError").textContent, "");
+  assert.equal(h.run("submitButton.disabled"), false);
+});
+
+for (const handler of ["submitScreening", "saveReview", "saveReferral", "saveFollowup"]) {
+  test(`${handler} retains its form after asynchronous event dispatch ends`, async () => {
+    const h = makeHarness();
+    h.element("oralImage").files = [{name:"synthetic.png"}];
+    h.run(`var resetCount=0;
+      var testEvent={preventDefault(){},currentTarget:{reset(){resetCount++;}}};
+      loadScreenings=async()=>{};loadReviews=async()=>{};loadCare=async()=>{};loadDashboard=async()=>{};`);
+    let finish;
+    h.respondWith(() => new Promise(resolve => { finish = resolve; }));
+    const pending = h.run(`${handler}(testEvent)`);
+    h.run("testEvent.currentTarget=null");
+    finish({});
+    await pending;
+    assert.equal(h.run("resetCount"), 1);
+    assert.equal(h.run("__toasts.some(message=>/null|currentTarget/.test(message))"), false);
+  });
+}
