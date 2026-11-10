@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const state = { user: null, page: "home", patients: [], language: localStorage.getItem("adLanguage") || "en", imageUrl: null, toastTimer: 0 };
+const state = { user: null, page: "home", patients: [], language: localStorage.getItem("adLanguage") || "en", imageUrl: null, toastTimer: 0, consultationsConfigured: false, jitsiApi: null, jitsiScriptPromise: null, offlineMode: false, vaultOwner: null, syncErrors: {}, syncingDrafts: false };
 
 const translations = {
   en: { secureAccess:"SECURE ACCESS", signIn:"Sign in to your workspace", loginHelp:"Use your assigned account to access patient records.", username:"Username", password:"Password", localOnly:"Local demonstration. Do not enter real patient data until your deployment has been security-reviewed.", districtCare:"DISTRICT CARE", overview:"Overview", patients:"Patients", screening:"Oral screening", clinicalReview:"Clinical review", careCoordination:"Care coordination", connecting:"Connecting…", workspace:"Workspace", fieldWorkspace:"FIELD WORKSPACE", goodDay:"Good day", overviewSubtitle:"A clear view of patients moving through care.", registerPatient:"Register patient", researchNotice:"Research and screening support only", safetyCopy:"This application does not diagnose disease. A qualified clinician makes every clinical decision.", registeredPatients:"Registered patients", allRecords:"All records in this workspace", screeningsInQueue:"Screenings in queue", awaitingReview:"Awaiting clinical review", followUpsDue:"Follow-ups due", nextSevenDays:"Scheduled in the next 7 days", referralsOpen:"Open referrals", careInMotion:"Care coordination in motion", carePathway:"CARE PATHWAY", journeyTitle:"Patient journey", viewPatients:"View patients", registration:"Registration", identityHistory:"Identity and history", photoAssessment:"Photo and assessment", clinician:"Clinician", medicalReview:"Medical review", followUp:"Follow-up", continuityCare:"Continuity of care", journeyEmpty:"Register a patient to begin their care pathway.", modelReadiness:"MODEL READINESS", imageAnalysis:"Image analysis", notConfigured:"Not configured", modelCopy:"No validated model is installed. No predictions will be generated.", experimentalOnly:"Experimental research only", latestActivity:"LATEST ACTIVITY", recentPatients:"Recent patients", seeAll:"See all", patient:"PATIENT", patientId:"PATIENT ID", village:"VILLAGE", registered:"REGISTERED", noPatients:"No patients yet", noPatientsCopy:"Your registered patients will appear here.", registerFirst:"Register your first patient", careRecords:"CARE RECORDS", patientsSubtitle:"Register people and keep their care journey organized.", searchPatients:"Search patient name or ID", ageGender:"AGE / GENDER", patientsEmptyCopy:"Add a patient to start their screening and care record.", oralHealth:"ORAL HEALTH", screeningSubtitle:"Capture a photograph and document screening observations.", newScreening:"New screening", selectPatient:"Patient", healthWorker:"Health worker", areaObserved:"Area observed", selectArea:"Select area", symptomDuration:"Symptom duration", durationPlaceholder:"e.g. 2 weeks", screenNotes:"Screening notes", oralPhoto:"Oral photograph", photoQualityPrompt:"Choose a clear, well-lit image. Quality checks will appear here.", saveScreening:"Save screening", photoGuide:"PHOTO GUIDE", betterPhoto:"A better photo helps review", goodLight:"Use good light", goodLightCopy:"Bright, even light helps show the area clearly.", steadyFocus:"Hold steady and focus", steadyFocusCopy:"Keep the camera close enough to see details.", wholeArea:"Show the whole area", wholeAreaCopy:"Avoid fingers, shadows, blur and unrelated objects.", consentFirst:"Get consent first", consentCopy:"Explain the photograph and obtain patient consent.", noDiagnosis:"No automatic diagnosis", noDiagnosisCopy:"A qualified clinician must assess every finding. Image quality checks do not identify disease.", screeningRecords:"Screening records", clinicalOversight:"CLINICAL OVERSIGHT", reviewSubtitle:"Qualified medical officers document their independent assessment.", recordReview:"Record a review", medicalOfficer:"Medical officer", reviewStatus:"Review status", clinicalObservations:"Clinical observations", saveReview:"Save review", decisionSupport:"DECISION SUPPORT", clinicianAuthority:"Clinical decisions stay with the clinician", clinicianCopy:"This workspace records human review. It does not interpret images or recommend a diagnosis, biopsy, or treatment.", researchReminder:"Any experimental model output must be separately validated and must never replace professional judgment.", reviewRecords:"Review records", careSubtitle:"Track referrals, appointments and follow-up actions.", newReferral:"New referral", hospital:"Hospital / facility", department:"Department", referralReason:"Reason for referral", appointmentDate:"Appointment date", saveReferral:"Save referral", newFollowup:"Schedule follow-up", followupDate:"Follow-up date", followupNotes:"Notes", saveFollowup:"Schedule follow-up", careRecordsTitle:"Referrals and follow-ups", fullName:"Full name", age:"Age", gender:"Gender", mobile:"Mobile number", district:"District", medicalHistory:"Relevant medical history", currentSymptoms:"Current symptoms", consentRecord:"I confirm the patient has been informed about this record and consents to its use for this demonstration.", cancel:"Cancel", savePatient:"Save patient", localPrototype:"Local prototype • NOT FOR CLINICAL USE", noScreenings:"No screening records yet.", noReviews:"No clinical reviews recorded yet.", noCareRecords:"No referrals or follow-ups yet.", patientSaved:"Patient record saved.", screeningSaved:"Screening saved for clinician review.", reviewSaved:"Clinical review saved.", referralSaved:"Referral saved.", followupSaved:"Follow-up scheduled.", serverUnavailable:"Server unavailable. Your information was not confirmed as saved.", signInRequired:"Sign in to continue.", patientRequired:"Register a patient before continuing.", imageDimensions:"Image is too small to assess. Use a clear image at least 240 × 240 pixels.", imageNotUsable:"This file could not be read as a supported image.", imageReady:"Image format and dimensions look suitable. A person must still check focus, lighting and relevance.", imageCaution:"Image quality looks limited. Consider retaking it in better light and focus.", imageSizeLimit:"Choose an image smaller than 7 MB.", loadError:"Could not load this information.", serverOnline:"Local server connected", serverOffline:"Local server unavailable", syncing:"Loading workspace…", ageYears:"years", viewRecord:"Open", screeningCount:"screenings", reviewCount:"reviews", referralCount:"referrals", followupCount:"follow-ups", imageChecksOnly:"Format and dimensions checked • clinical quality needs a person’s review", signOut:"Sign out"
@@ -37,7 +37,17 @@ Object.assign(translations.te, {
   imageRequiresReview: "పరీక్ష ఫోటో · వైద్యుని సమీక్ష అవసరం; ఇది AI ఫలితం కాదు."
 });
 
-function t(key) { return translations[state.language]?.[key] || translations.en[key] || key; }
+const consultationLabels = { en: {
+  consultations:"Consultations", consultationSubtitle:"Schedule a private video review with a clinician.", scheduleConsultation:"Schedule consultation", appointmentDateTime:"Appointment date and time", appointmentLength:"Appointment length", saveAppointment:"Save appointment", consultationPrivacyTitle:"A private room for each appointment", consultationPrivacyCopy:"Room names are random and contain no patient details. A clinician must start the call; recording controls are disabled in the meeting interface.", consultationGuestTitle:"Patient access", consultationGuestCopy:"Use the copy invitation link action to share a guest link through an approved channel. The patient waits in the Jitsi lobby until admitted.", consultationRecords:"Consultation appointments", consultationInProgress:"Consultation call", leaveCall:"Leave call", consultationNoRecord:"Recording is disabled. Do not discuss or display unrelated patient records.", jitsiConfigured:"Private Jitsi video is configured. Calls open only when a clinician chooses Join.", jitsiNotConfigured:"Video consultation is not configured. Add the private Jitsi domain and JWT credentials on the server to enable calls.", noConsultations:"No appointments scheduled yet.", joinCall:"Join call", copyPatientLink:"Copy patient link", cancelAppointment:"Cancel", invitationCopied:"Guest link copied. Share it through an approved channel.", invitationCopyError:"Could not copy the guest link on this device.", appointmentSaved:"Consultation appointment saved.", appointmentCancelled:"Appointment cancelled.", startingCall:"Connecting to private video…", appointmentStatus:"Appointment", joinCallError:"Could not start the consultation.", copyLinkError:"Could not create the patient link.", cancelConfirm:"Cancel this consultation appointment?", leaveCallConfirm:"Leave the video call?", callNotConfigured:"Video consultation is not configured.", activeCallTitle:"Consultation call", consultationStatusScheduled:"Scheduled", consultationStatusCompleted:"Completed", consultationStatusCancelled:"Cancelled"
+} };
+Object.assign(translations.en,{experimentalOnly:"No model installed"});
+Object.assign(translations.te,{experimentalOnly:"మోడల్ ఇన్‌స్టాల్ కాలేదు"});
+const offlineLabels = { en: {
+  offlinePassphrase:"Offline drafts passphrase", offlineLoginHelp:"On your first online health-worker sign-in, this creates the encrypted draft vault. Use the same passphrase to open drafts offline and unlock them for sync.", openOfflineDrafts:"Open offline drafts", offlineOnlyTitle:"Offline draft mode", offlineOnlyCopy:"Only new patient registrations can be drafted here. Existing records, reviews, follow-ups, consultations, and screening photos are unavailable offline. Sign in online and sync drafts soon; browser storage can be cleared.", offlineDraftsEyebrow:"ENCRYPTED ON THIS DEVICE", offlineDraftsTitle:"Patient registration drafts", syncDrafts:"Sync drafts now", offlineDraftSaved:"Patient registration saved as an encrypted draft on this device. It has not been sent to the server.", offlineDraftPending:"Waiting for authenticated sync", offlineNoDrafts:"No pending patient drafts.", offlineSyncSuccess:"Patient draft sync completed.", offlineSyncPartial:"Some drafts could not be synchronized. Review the messages below.", offlineSyncNetwork:"Connection was lost. Remaining drafts are still encrypted on this device.", offlineConflict:"Server rejected this draft. Review the reason before discarding it.", discardDraft:"Discard draft", confirmDiscardDraft:"Discard this unsynchronized patient draft from this device? This cannot be undone.", offlineNeedsUnlock:"Enter the offline drafts passphrase to open this vault.", offlineVaultCreated:"Encrypted offline draft vault is ready.", offlineVaultUnavailable:"Offline drafts could not be unlocked. Online sign-in is still available.", offlineOnlyWorker:"Offline draft mode is available only for a health-worker vault.", offlineRegistrationOnly:"This browser reports a connection. Sign in online to register, or reopen drafts when offline. Screening photos are not queued.", onlineOnlyScreenings:"Sync patient registrations before starting screenings. Screening photos currently require a live connection.", sessionExpiredDrafts:"Your session expired. Drafts remain encrypted; sign in again to sync.", serverUnavailableDraft:"Server unavailable. The draft remains encrypted on this device.", tooShortOfflinePassphrase:"Use an offline passphrase of at least 12 characters.", idempotencyConflict:"This operation ID is already linked to another payload.", draftSyncing:"Sending encrypted patient drafts…"
+}, te: {
+  offlinePassphrase:"ఆఫ్‌లైన్ డ్రాఫ్ట్ పాస్‌ఫ్రేజ్", openOfflineDrafts:"ఆఫ్‌లైన్ డ్రాఫ్ట్‌లను తెరవండి", offlineOnlyTitle:"ఆఫ్‌లైన్ డ్రాఫ్ట్ మోడ్", syncDrafts:"డ్రాఫ్ట్‌లను సింక్ చేయండి", offlineDraftsTitle:"రోగి నమోదు డ్రాఫ్ట్‌లు", discardDraft:"డ్రాఫ్ట్ తొలగించండి"
+} };
+function t(key) { return translations[state.language]?.[key] || consultationLabels[state.language]?.[key] || offlineLabels[state.language]?.[key] || translations.en[key] || consultationLabels.en[key] || offlineLabels.en[key] || key; }
 function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
 function dateLabel(value) { if (!value) return "—"; const d = new Date(value); return Number.isNaN(d.getTime()) ? value.slice(0, 10) : new Intl.DateTimeFormat(state.language === "te" ? "te-IN" : "en-IN", {day:"numeric",month:"short",year:"numeric"}).format(d); }
 function dateTimeLabel(value) { if (!value) return "—"; const d = new Date(value); return Number.isNaN(d.getTime()) ? value : new Intl.DateTimeFormat(state.language === "te" ? "te-IN" : "en-IN", {day:"numeric",month:"short",year:"numeric",hour:"numeric",minute:"2-digit"}).format(d); }
@@ -47,27 +57,226 @@ function showToast(message) { const el=$("toast"); el.textContent=message; el.cl
 async function api(path, options={}) {
   let response;
   try { response=await fetch(path,{credentials:"same-origin",...options,headers:{...(options.body instanceof FormData?{}:{"Content-Type":"application/json"}),...(options.headers||{})}}); }
-  catch { throw new Error(t("serverUnavailable")); }
+  catch { const error=new Error(t("serverUnavailable")); error.network=true; throw error; }
   const type=response.headers.get("content-type")||"";
   const data=type.includes("application/json")?await response.json():{};
-  if (!response.ok) { if (response.status===401 && path!=="/api/login") showLogin(); throw new Error(data.error||t("loadError")); }
+  if (!response.ok) { if (response.status===401 && path!=="/api/login") showLogin(); const error=new Error(data.error||t("loadError")); error.status=response.status; throw error; }
   return data;
 }
-function showLogin() { $("appView").hidden=true; $("loginView").hidden=false; state.user=null; }
-function showApp(user) { state.user=user; $("loginView").hidden=true; $("appView").hidden=false; document.querySelectorAll("[data-admin-only]").forEach(el=>el.hidden=user.role!=="admin"); const name=user.display_name||user.username; $("userLabel").textContent=name; $("welcomeName").textContent=name.split(" ")[0]; $("userInitial").textContent=name.charAt(0).toUpperCase(); $("topInitial").textContent=name.charAt(0).toUpperCase(); $("roleLabel").textContent=user.role.replaceAll("_"," "); translate(); refreshAll().catch(err=>showToast(err.message)); }
-function translate() { document.documentElement.lang=state.language; document.querySelectorAll("[data-i18n]").forEach(el=>{const val=t(el.dataset.i18n); if(val) el.textContent=val;}); document.querySelectorAll("[data-i18n-placeholder]").forEach(el=>el.placeholder=t(el.dataset.i18nPlaceholder)); $("languageButton").innerHTML=(state.language==="en"?"తెలుగు":"English")+" <span>⌄</span>"; $("todayLabel").textContent=today(); $("pageTitle").textContent=t(({home:"overview",patients:"patients",screening:"screening",review:"clinicalReview",care:"careCoordination",audit:"auditLog"})[state.page]); }
-function goPage(page) { if(page==="audit"&&state.user?.role!=="admin") return; state.page=page; document.querySelectorAll(".page").forEach(el=>el.classList.toggle("active",el.id===`page-${page}`)); document.querySelectorAll(".nav-item").forEach(el=>el.classList.toggle("active",el.dataset.page===page)); $("sidebar").classList.remove("open"); translate(); if(page==="home") loadDashboard(); if(page==="patients") loadPatients(); if(page==="screening") { loadPatients().then(()=>loadScreenings()); } if(page==="review") { loadPatients().then(()=>loadReviews()); } if(page==="care") { loadPatients().then(()=>loadCare()); } if(page==="audit") loadAudit(); }
+function showLogin() { if(window.OfflineVault) window.OfflineVault.lock(); state.user=null; state.offlineMode=false; state.vaultOwner=null; state.syncErrors={}; state.syncingDrafts=false; state.pendingPatientSubmission=null; $("appView").hidden=true; $("loginView").hidden=false; }
+function vaultUnlockedForCurrentUser() { return Boolean(window.OfflineVault?.isUnlocked() && state.vaultOwner && state.user && state.vaultOwner===state.user.username.toLowerCase()); }
+async function unlockOrCreateVault(username, passphrase) {
+  if(!window.OfflineVault) throw new Error(t("offlineVaultUnavailable"));
+  try { await window.OfflineVault.unlockVault(passphrase,username); }
+  catch(error) {
+    if(error.code!=="VAULT_NOT_FOUND") throw error;
+    try { await window.OfflineVault.createVault(passphrase,username); }
+    catch(createError) {
+      if(createError.code!=="VAULT_EXISTS") throw createError;
+      await window.OfflineVault.unlockVault(passphrase,username);
+    }
+  }
+  state.vaultOwner=username;
+}
+function showApp(user, {offline=false}={}) {
+  state.user=user; state.offlineMode=offline;
+  $("loginView").hidden=true; $("appView").hidden=false;
+  document.querySelectorAll("[data-admin-only]").forEach(el=>el.hidden=user.role!=="admin");
+  const canConsult=user.role==="admin"||user.role==="medical_officer"||user.role==="specialist";
+  document.querySelectorAll("[data-clinician-only]").forEach(el=>el.hidden=!canConsult);
+  document.querySelectorAll("[data-page]").forEach(el=>{
+    if(offline) el.hidden=el.dataset.page!=="patients";
+    else if(el.hasAttribute("data-admin-only")) el.hidden=user.role!=="admin";
+    else if(el.hasAttribute("data-clinician-only")) el.hidden=!canConsult;
+    else el.hidden=false;
+  });
+  $("offlineOnlyNotice").hidden=!offline;
+  const name=user.display_name||user.username;
+  $("userLabel").textContent=name; $("welcomeName").textContent=name.split(" ")[0];
+  $("userInitial").textContent=name.charAt(0).toUpperCase(); $("topInitial").textContent=name.charAt(0).toUpperCase();
+  $("roleLabel").textContent=offline?"health worker · offline drafts only":user.role.replaceAll("_"," ");
+  translate();
+  if(offline) { $("syncIndicator").className="sync-indicator offline"; $("syncLabel").textContent=t("offlineDraftPending"); goPage("patients"); }
+  else { state.page="home"; document.querySelectorAll(".page").forEach(el=>el.classList.toggle("active",el.id==="page-home")); document.querySelectorAll(".nav-item").forEach(el=>el.classList.toggle("active",el.dataset.page==="home")); translate(); refreshAll().catch(err=>showToast(err.message)); if(vaultUnlockedForCurrentUser()) refreshOfflineDraftPanel().catch(err=>showToast(err.message)); }
+}
+function translate() { document.documentElement.lang=state.language; document.querySelectorAll("[data-i18n]").forEach(el=>{const val=t(el.dataset.i18n); if(val) el.textContent=val;}); document.querySelectorAll("[data-i18n-placeholder]").forEach(el=>el.placeholder=t(el.dataset.i18nPlaceholder)); $("languageButton").innerHTML=(state.language==="en"?"తెలుగు":"English")+" <span>⌄</span>"; $("todayLabel").textContent=today(); $("pageTitle").textContent=t(({home:"overview",patients:"patients",screening:"screening",review:"clinicalReview",care:"careCoordination",consultations:"consultations",audit:"auditLog"})[state.page]); }
+function goPage(page) { if(state.offlineMode&&page!=="patients") return; const canConsult=state.user?.role==="admin"||state.user?.role==="medical_officer"||state.user?.role==="specialist"; if(page==="audit"&&state.user?.role!=="admin") return; if(page==="consultations"&&!canConsult) return; if(state.page==="consultations"&&page!=="consultations") closeConsultationCall(); state.page=page; document.querySelectorAll(".page").forEach(el=>el.classList.toggle("active",el.id===`page-${page}`)); document.querySelectorAll(".nav-item").forEach(el=>el.classList.toggle("active",el.dataset.page===page)); $("sidebar").classList.remove("open"); translate(); if(page==="home") loadDashboard(); if(page==="patients") loadPatients(); if(page==="screening") { loadPatients().then(()=>loadScreenings()); } if(page==="review") { loadPatients().then(()=>loadReviews()); } if(page==="care") { loadPatients().then(()=>loadCare()); } if(page==="consultations") { loadPatients().then(()=>loadConsultations()).catch(err=>showToast(err.message)); } if(page==="audit") loadAudit(); }
 function openPatientDialog() { if(!$("patientDialog").open) $("patientDialog").showModal(); $("patientError").textContent=""; }
 
-async function refreshAll() { $("syncLabel").textContent=t("syncing"); try { await api("/api/health"); $("syncIndicator").className="sync-indicator"; $("syncLabel").textContent=t("serverOnline"); await loadDashboard(); } catch { $("syncIndicator").className="sync-indicator offline"; $("syncLabel").textContent=t("serverOffline"); throw new Error(t("serverUnavailable")); } }
+async function refreshAll() { if(state.offlineMode) return; $("syncLabel").textContent=t("syncing"); try { await api("/api/health"); $("syncIndicator").className="sync-indicator"; $("syncLabel").textContent=t("serverOnline"); await loadDashboard(); } catch { $("syncIndicator").className="sync-indicator offline"; $("syncLabel").textContent=t("serverOffline"); throw new Error(t("serverUnavailable")); } }
 async function loadDashboard() { const data=await api("/api/dashboard"); $("metricPatients").textContent=data.patients; $("metricScreenings").textContent=data.screenings; $("metricFollowups").textContent=data.followups; $("metricReferrals").textContent=data.referrals; const has=data.patients>0; $("recentEmpty").hidden=has; $("journeyEmpty").hidden=has; $("recentPatientsBody").innerHTML=data.recent.map(p=>`<tr><td><div class="patient-cell"><span class="patient-initial">${escapeHtml(p.name[0]?.toUpperCase())}</span>${escapeHtml(p.name)}</div></td><td><span class="id-code">${escapeHtml(p.patient_code)}</span></td><td>${escapeHtml(p.village)}</td><td>${dateLabel(p.created_at)}</td><td><button class="row-action" data-open-patient="${escapeHtml(p.id)}">${t("viewRecord")} →</button></td></tr>`).join(""); }
-async function loadPatients() { const data=await api("/api/patients"); state.patients=data.patients; renderPatients(); fillPatientSelects(); return data; }
+async function loadPatients() { if(state.offlineMode) { state.patients=[]; $("patientRecordsPanel").hidden=true; renderPatients(); fillPatientSelects(); await refreshOfflineDraftPanel(); return {patients:[]}; } const data=await api("/api/patients"); state.patients=data.patients; $("patientRecordsPanel").hidden=false; renderPatients(); fillPatientSelects(); if(vaultUnlockedForCurrentUser()) await refreshOfflineDraftPanel(); return data; }
+async function refreshOfflineDraftPanel() {
+  const panel=$("offlineDraftPanel");
+  if(!vaultUnlockedForCurrentUser()) { panel.hidden=true; return []; }
+  const entries=await window.OfflineVault.listOperations();
+  panel.hidden=false;
+  $("offlineDraftCount").textContent=String(entries.length);
+  const canSync=!state.offlineMode&&state.user?.role==="health_worker";
+  $("syncDraftsButton").hidden=!canSync;
+  $("syncDraftsButton").disabled=!canSync||state.syncingDrafts||entries.length===0;
+  if(!entries.length) {
+    $("offlineDraftList").innerHTML=`<div class="empty-state"><p>${t("offlineNoDrafts")}</p></div>`;
+    $("offlineDraftStatus").textContent=t("offlineNoDrafts");
+    return entries;
+  }
+  $("offlineDraftList").innerHTML=entries.map(({id,operation})=>{
+    const patient=operation?.patient||{};
+    const error=state.syncErrors[id];
+    const discard=`<button type="button" class="text-button danger-text" data-discard-offline-draft="${escapeHtml(id)}">${t("discardDraft")}</button>`;
+    return `<article class="record-row"><span class="record-bullet">♙</span><div class="record-copy"><b>${escapeHtml(patient.name||"Patient draft")}</b><p>${escapeHtml(patient.age||"")} ${t("ageYears")} · ${escapeHtml(patient.village||"")}</p><small class="record-meta">${escapeHtml(error||t("offlineDraftPending"))}</small>${discard}</div><span class="record-meta">${error?"Review":"Draft"}</span></article>`;
+  }).join("");
+  if(!state.offlineMode&&state.user?.role==="health_worker") $("offlineDraftStatus").textContent=t("offlineDraftPending");
+  else $("offlineDraftStatus").textContent=t("offlineDraftSaved");
+  return entries;
+}
+async function syncOfflineDrafts() {
+  if(state.offlineMode||state.user?.role!=="health_worker"||!vaultUnlockedForCurrentUser()) return;
+  try {
+    const session=await api("/api/session");
+    if(!session.authenticated||session.user?.username!==state.user.username) { showLogin(); $("loginError").textContent=t("sessionExpiredDrafts"); return; }
+  } catch(error) { $("offlineDraftStatus").textContent=error.message; return; }
+  let entries;
+  try { entries=await window.OfflineVault.listOperations(); }
+  catch(error) { $("offlineDraftStatus").textContent=error.message; return; }
+  if(!entries.length) { await refreshOfflineDraftPanel(); return; }
+  state.syncingDrafts=true;
+  $("syncDraftsButton").disabled=true;
+  $("offlineDraftStatus").textContent=t("draftSyncing");
+  let sent=0, hadConflict=false, interrupted=false;
+  for(const entry of entries) {
+    try {
+      const operation=entry.operation;
+      if(operation?.type!=="patient-registration-v1"||!operation.patient) throw Object.assign(new Error("Unsupported offline draft format."),{status:400});
+      const result=await api("/api/offline/patients",{
+        method:"POST",
+        headers:{"Idempotency-Key":entry.id},
+        body:JSON.stringify(operation.patient)
+      });
+      if(result.operation_id!==entry.id) throw new Error("The server acknowledgement did not match this draft.");
+      await window.OfflineVault.deleteAcknowledged(entry.id);
+      delete state.syncErrors[entry.id];
+      sent++;
+    } catch(error) {
+      if(!state.user) return;
+      if(error.network||!error.status||error.status>=500) { interrupted=true; break; }
+      if(error.status===409||error.status===400||error.status===403) {
+        state.syncErrors[entry.id]=error.message;
+        hadConflict=true;
+        continue;
+      }
+      interrupted=true;
+      break;
+    }
+  }
+  state.syncingDrafts=false;
+  if(!state.user) return;
+  try { await refreshOfflineDraftPanel(); } catch(error) { $("offlineDraftStatus").textContent=error.message; return; }
+  if(interrupted) $("offlineDraftStatus").textContent=t("offlineSyncNetwork");
+  else if(hadConflict) $("offlineDraftStatus").textContent=t("offlineSyncPartial");
+  else $("offlineDraftStatus").textContent=sent?`${sent} ${t("offlineSyncSuccess")}`:t("offlineNoDrafts");
+  if(sent) { await loadPatients(); await loadDashboard(); }
+}
+async function discardOfflineDraft(id) {
+  if(!vaultUnlockedForCurrentUser()) return;
+  if(!window.confirm(t("confirmDiscardDraft"))) return;
+  try { await window.OfflineVault.discardOperation(id); delete state.syncErrors[id]; await refreshOfflineDraftPanel(); }
+  catch(error) { $("offlineDraftStatus").textContent=error.message; }
+}
 function patientRow(p) { return `<tr><td><div class="patient-cell"><span class="patient-initial">${escapeHtml(p.name[0]?.toUpperCase())}</span>${escapeHtml(p.name)}</div></td><td><span class="id-code">${escapeHtml(p.patient_code)}</span></td><td>${escapeHtml(p.age)} ${t("ageYears")} / ${escapeHtml(p.gender||"—")}</td><td>${escapeHtml(p.village)}</td><td>${dateLabel(p.created_at)}</td><td><button class="row-action" data-open-patient="${escapeHtml(p.id)}">${t("viewRecord")} →</button></td></tr>`; }
 function renderPatients() { const term=$("patientSearch").value.trim().toLowerCase(); const rows=state.patients.filter(p=>`${p.name} ${p.patient_code} ${p.village}`.toLowerCase().includes(term)); $("patientCount").textContent=`${rows.length} / ${state.patients.length}`; $("patientsBody").innerHTML=rows.map(patientRow).join(""); $("patientsEmpty").hidden=state.patients.length>0; }
-function fillPatientSelects() { for(const id of ["screenPatient","reviewPatient","referralPatient","followPatient"]) { const sel=$(id), previous=sel.value; sel.innerHTML=`<option value="">${t("selectPatient")}</option>`+state.patients.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.patient_code)} · ${escapeHtml(p.name)}</option>`).join(""); if(state.patients.some(p=>p.id===previous)) sel.value=previous; } }
+function fillPatientSelects() { for(const id of ["screenPatient","reviewPatient","referralPatient","followPatient","consultPatient"]) { const sel=$(id), previous=sel.value; sel.innerHTML=`<option value="">${t("selectPatient")}</option>`+state.patients.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.patient_code)} · ${escapeHtml(p.name)}</option>`).join(""); if(state.patients.some(p=>p.id===previous)) sel.value=previous; } }
 async function loadScreenings() { const data=await api("/api/screenings"); const el=$("screeningList"); el.innerHTML=data.screenings.length?data.screenings.map(s=>`<div class="record-row"><span class="record-bullet">◎</span><div class="record-copy"><b>${escapeHtml(s.patient_name)} <span class="id-code">${escapeHtml(s.patient_code)}</span></b><p>${escapeHtml(s.location||"Oral image captured")} · ${escapeHtml(s.status)} · ${s.image_width}×${s.image_height}</p><figure><a href="/api/images/${encodeURIComponent(s.id)}" target="_blank" rel="noopener noreferrer">Open protected screening photo</a><img class="image-preview" src="/api/images/${encodeURIComponent(s.id)}" alt="Screening photograph for ${escapeHtml(s.patient_name)}. Clinician review required; this is not an AI result." loading="lazy"><figcaption class="record-meta">Screening photograph · requires clinician assessment; no diagnosis is shown.</figcaption></figure></div><span class="record-meta">${dateLabel(s.created_at)}</span></div>`).join(""):`<div class="empty-state"><p>${t("noScreenings")}</p></div>`; }
 async function loadReviews() { const data=await api("/api/reviews"); const el=$("reviewList"); el.innerHTML=data.reviews.length?data.reviews.map(r=>`<div class="record-row"><span class="record-bullet">▤</span><div class="record-copy"><b>${escapeHtml(r.patient_name)} <span class="id-code">${escapeHtml(r.patient_code)}</span></b><p>${escapeHtml(r.status)} · ${escapeHtml(r.reviewer)} · ${escapeHtml(r.observations)}</p></div><span class="record-meta">${dateLabel(r.created_at)}</span></div>`).join(""):`<div class="empty-state"><p>${t("noReviews")}</p></div>`; }
 async function loadCare() { const data=await api("/api/care"); const all=[...data.referrals.map(x=>({...x,kind:"referral",detail:`${x.facility} · ${x.department} · ${x.status}`})),...data.followups.map(x=>({...x,kind:"followup",detail:`${t("followUp")} · ${x.status} · ${x.notes}`}))].sort((a,b)=>String(b.created_at||b.due_date).localeCompare(String(a.created_at||a.due_date))); $("careList").innerHTML=all.length?all.map(r=>`<div class="record-row"><span class="record-bullet">${r.kind==="referral"?"↗":"◷"}</span><div class="record-copy"><b>${escapeHtml(r.patient_name)} <span class="id-code">${escapeHtml(r.patient_code)}</span></b><p>${escapeHtml(r.detail)}${r.reason?` · ${escapeHtml(r.reason)}`:""}</p></div><span class="record-meta">${dateLabel(r.due_date||r.created_at)}</span></div>`).join(""):`<div class="empty-state"><p>${t("noCareRecords")}</p></div>`; }
+async function loadConsultations() {
+  const data=await api("/api/consultations");
+  state.consultationsConfigured=Boolean(data.configured);
+  const notice=$("consultationStatusNotice");
+  notice.classList.toggle("not-configured",!state.consultationsConfigured);
+  notice.textContent=state.consultationsConfigured?t("jitsiConfigured"):t("jitsiNotConfigured");
+  const records=data.consultations||[];
+  $("consultationCount").textContent=String(records.length);
+  if(!records.length) { $("consultationList").innerHTML=`<div class="empty-state"><p>${t("noConsultations")}</p></div>`; return; }
+  $("consultationList").innerHTML=records.map(item=>{
+    const statusLabel=t(`consultationStatus${item.status.charAt(0).toUpperCase()+item.status.slice(1)}`);
+    const enabled=state.consultationsConfigured&&item.status==="scheduled";
+    const actions=item.status==="scheduled"?`<div class="consultation-actions"><button class="button primary" type="button" data-join-consultation="${escapeHtml(item.id)}" ${enabled?"":"disabled"}>${t("joinCall")}</button><button class="button secondary" type="button" data-copy-consultation-link="${escapeHtml(item.id)}" ${enabled?"":"disabled"}>${t("copyPatientLink")}</button><button class="text-button danger-text" type="button" data-cancel-consultation="${escapeHtml(item.id)}">${t("cancelAppointment")}</button></div>`:"";
+    return `<article class="consultation-record"><div class="consultation-record-main"><div><b>${escapeHtml(item.patient_name)} <span class="id-code">${escapeHtml(item.patient_code)}</span></b><p>${dateTimeLabel(item.scheduled_at)} · ${escapeHtml(item.duration_minutes)} ${t("appointmentLength").toLowerCase()}</p></div><span class="status-pill status-${escapeHtml(item.status)}">${escapeHtml(statusLabel)}</span></div>${actions}</article>`;
+  }).join("");
+}
+async function createConsultation(event) {
+  event.preventDefault(); $("consultationFormError").textContent="";
+  const startsAt=new Date($("consultationTime").value);
+  if(!Number.isFinite(startsAt.getTime())) { $("consultationFormError").textContent=t("appointmentDateTime"); return; }
+  const body={patient_id:$("consultPatient").value,scheduled_at:startsAt.toISOString(),duration_minutes:Number($("consultationDuration").value)};
+  const button=event.currentTarget.querySelector("button[type=submit]"); button.disabled=true;
+  try { await api("/api/consultations",{method:"POST",body:JSON.stringify(body)}); event.currentTarget.reset(); $("consultationDuration").value="30"; showToast(t("appointmentSaved")); await loadPatients(); await loadConsultations(); }
+  catch(err) { $("consultationFormError").textContent=err.message; }
+  finally { button.disabled=false; }
+}
+async function loadJitsiApi(domain) {
+  if(window.JitsiMeetExternalAPI) return;
+  if(state.jitsiScriptPromise) return state.jitsiScriptPromise;
+  state.jitsiScriptPromise=new Promise((resolve,reject)=>{
+    const script=document.createElement("script"); script.src=`https://${domain}/external_api.js`; script.async=true;
+    script.onload=()=>window.JitsiMeetExternalAPI?resolve():reject(new Error(t("joinCallError")));
+    script.onerror=()=>reject(new Error(t("joinCallError")));
+    document.head.appendChild(script);
+  });
+  try { await state.jitsiScriptPromise; } catch(err) { state.jitsiScriptPromise=null; throw err; }
+}
+async function joinConsultation(id) {
+  closeConsultationCall();
+  const panel=$("consultationCallPanel"); panel.hidden=false;
+  $("jitsiFrame").innerHTML=`<div class="empty-state"><p>${t("startingCall")}</p></div>`;
+  try {
+    const data=await api(`/api/consultations/${encodeURIComponent(id)}/join`,{method:"POST",body:"{}"});
+    await loadJitsiApi(data.domain);
+    if(state.page!=="consultations"||!state.user) { panel.hidden=true; return; }
+    $("jitsiFrame").replaceChildren();
+    const external=new window.JitsiMeetExternalAPI(data.domain,{
+      roomName:data.room_name,
+      parentNode:$("jitsiFrame"),
+      jwt:data.jwt,
+      userInfo:{displayName:"Clinician"},
+      configOverwrite:{
+        prejoinConfig:{enabled:true},
+        recordings:{enabled:false,sharingEnabled:false},
+        recordingService:{enabled:false,sharingEnabled:false},
+        fileRecordingsServiceEnabled:false,
+        fileRecordingsServiceSharingEnabled:false,
+        localRecording:{disable:true,disableSelfRecording:true},
+        liveStreaming:{enabled:false},
+        toolbarButtons:["microphone","camera","chat","participants-pane","hangup","fullscreen","tileview","settings","security","raisehand","videoquality"]
+      }
+    });
+    state.jitsiApi=external;
+    external.addListener("videoConferenceLeft",()=>closeConsultationCall(false));
+  } catch(err) {
+    panel.hidden=true; $("jitsiFrame").replaceChildren(); showToast(err.message||t("joinCallError"));
+  }
+}
+function closeConsultationCall(leave=true) {
+  const external=state.jitsiApi; state.jitsiApi=null;
+  if(external) {
+    if(leave) { try { external.executeCommand("hangup"); } catch {} }
+    try { external.dispose(); } catch {}
+  }
+  const panel=$("consultationCallPanel"); if(panel) panel.hidden=true;
+  const frame=$("jitsiFrame"); if(frame) frame.replaceChildren();
+}
+async function copyConsultationLink(id) {
+  try {
+    const data=await api(`/api/consultations/${encodeURIComponent(id)}/invite`,{method:"POST",body:"{}"});
+    await navigator.clipboard.writeText(data.guest_url); showToast(t("invitationCopied"));
+  } catch(err) { showToast(err.message||t("invitationCopyError")); }
+}
+async function cancelConsultation(id) {
+  if(!window.confirm(t("cancelConfirm"))) return;
+  try { await api(`/api/consultations/${encodeURIComponent(id)}/cancel`,{method:"POST",body:"{}"}); showToast(t("appointmentCancelled")); await loadConsultations(); }
+  catch(err) { showToast(err.message); }
+}
 async function loadAudit() { if(state.user?.role!=="admin") return; const data=await api("/api/audit"); const records=data.records||[]; $("auditEmpty").hidden=records.length>0; $("auditBody").innerHTML=records.map(r=>`<tr><td>${escapeHtml(r.actor_name)}</td><td>${escapeHtml(r.action)}</td><td>${escapeHtml(r.entity_type)}</td><td><span class="id-code">${escapeHtml(r.entity_id)}</span></td><td>${escapeHtml(dateTimeLabel(r.created_at))}</td></tr>`).join(""); }
 async function openPatientRecord(id) {
   try {
@@ -83,11 +292,61 @@ async function openPatientRecord(id) {
   } catch(err) { showToast(err.message); }
 }
 
-async function handleLogin(event) { event.preventDefault(); $("loginError").textContent=""; const button=event.currentTarget.querySelector("button"); button.disabled=true; try { const result=await api("/api/login",{method:"POST",body:JSON.stringify({username:$("username").value,password:$("password").value})}); event.currentTarget.reset(); showApp(result.user); } catch(err) { $("loginError").textContent=err.message; } finally { button.disabled=false; } }
+function newOperationId() { return Array.from(crypto.getRandomValues(new Uint8Array(16)),byte=>byte.toString(16).padStart(2,"0")).join(""); }
+async function handleLogin(event) {
+  event.preventDefault(); $("loginError").textContent="";
+  const form=event.currentTarget, button=form.querySelector('[type="submit"]');
+  const username=$("username").value.trim().toLowerCase(), password=$("password").value, passphrase=$("offlinePassphrase").value;
+  button.disabled=true;
+  try {
+    if(!password) throw new Error("Enter your account password, or use Open offline drafts.");
+    const result=await api("/api/login",{method:"POST",body:JSON.stringify({username,password})});
+    if(window.OfflineVault) window.OfflineVault.lock();
+    state.vaultOwner=null;
+    let vaultError=null;
+    if(result.user.role==="health_worker"&&passphrase) {
+      try { await unlockOrCreateVault(result.user.username.toLowerCase(),passphrase); }
+      catch(error) { if(window.OfflineVault) window.OfflineVault.lock(); state.vaultOwner=null; vaultError=error.message; }
+    }
+    state.pendingPatientSubmission=null;
+    form.reset();
+    showApp(result.user);
+    if(vaultError) showToast(`${t("offlineVaultUnavailable")} ${vaultError}`);
+  } catch(error) {
+    $("loginError").textContent=error.message;
+  } finally { button.disabled=false; }
+}
+async function openOfflineDraftMode() {
+  $("loginError").textContent="";
+  const username=$("username").value.trim().toLowerCase(), passphrase=$("offlinePassphrase").value;
+  if(!username||!passphrase) { $("loginError").textContent=t("offlineNeedsUnlock"); return; }
+  try {
+    await window.OfflineVault.unlockVault(passphrase,username);
+    state.vaultOwner=username;
+    state.pendingPatientSubmission=null;
+    $("loginForm").reset();
+    showApp({username,display_name:username,role:"health_worker"},{offline:true});
+  } catch(error) { $("loginError").textContent=error.code==="VAULT_NOT_FOUND"?t("offlineVaultUnavailable"):error.message; }
+}
 async function submitPatient(event) {
   event.preventDefault(); $("patientError").textContent=""; const f=event.currentTarget;
   const body={name:$("patientName").value.trim(),age:Number($("age").value),gender:$("gender").value,phone:$("mobile").value.trim(),village:$("village").value.trim(),district:$("district").value.trim(),history:$("history").value.trim(),symptoms:$("symptoms").value.trim(),consent:$("consent").checked};
-  try { const result=await api("/api/patients",{method:"POST",body:JSON.stringify(body)}); f.reset(); $("district").value="Alluri Sitharama Raju"; $("patientDialog").close(); await loadPatients(); await loadDashboard(); showToast(`${t("patientSaved")} ${result.patient.patient_code}`); }
+  try {
+    if(state.offlineMode||navigator.onLine===false) {
+      if(state.user?.role!=="health_worker"||!vaultUnlockedForCurrentUser()) throw new Error(t("offlineVaultUnavailable"));
+      await window.OfflineVault.putOperation({type:"patient-registration-v1",patient:body});
+      f.reset(); $("district").value="Alluri Sitharama Raju"; $("patientDialog").close(); await loadPatients(); showToast(t("offlineDraftSaved")); return;
+    }
+    if(state.offlineMode) throw new Error(t("offlineRegistrationOnly"));
+    let result;
+    if(state.user?.role==="health_worker") {
+      const serialized=JSON.stringify(body);
+      if(!state.pendingPatientSubmission||state.pendingPatientSubmission.serialized!==serialized) state.pendingPatientSubmission={serialized,id:newOperationId()};
+      result=await api("/api/offline/patients",{method:"POST",headers:{"Idempotency-Key":state.pendingPatientSubmission.id},body:serialized});
+    } else result=await api("/api/patients",{method:"POST",body:JSON.stringify(body)});
+    state.pendingPatientSubmission=null;
+    f.reset(); $("district").value="Alluri Sitharama Raju"; $("patientDialog").close(); await loadPatients(); await loadDashboard(); showToast(`${t("patientSaved")} ${result.patient.patient_code}`);
+  }
   catch(err) { $("patientError").textContent=err.message; }
 }
 async function qualityCheck(file) {
@@ -104,9 +363,12 @@ async function saveFollowup(event) {event.preventDefault();const body={patient_i
 
 async function boot() {
   translate(); $("loginForm").addEventListener("submit",handleLogin); $("patientForm").addEventListener("submit",submitPatient); $("screeningForm").addEventListener("submit",submitScreening); $("reviewForm").addEventListener("submit",saveReview); $("referralForm").addEventListener("submit",saveReferral); $("followupForm").addEventListener("submit",saveFollowup);
+  $("unlockOfflineButton").addEventListener("click",openOfflineDraftMode); $("syncDraftsButton").addEventListener("click",syncOfflineDrafts);
+  $("consultationForm").addEventListener("submit",createConsultation); $("closeConsultationCall").addEventListener("click",()=>closeConsultationCall()); const localNow=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16); $("consultationTime").min=localNow;
   $("newPatientButton").addEventListener("click",openPatientDialog); $("emptyRegisterButton").addEventListener("click",openPatientDialog); $("closePatientDialog").addEventListener("click",()=>$("patientDialog").close()); $("cancelPatient").addEventListener("click",()=>$("patientDialog").close()); $("oralImage").addEventListener("change",e=>qualityCheck(e.target.files[0])); $("patientSearch").addEventListener("input",renderPatients); $("languageButton").addEventListener("click",()=>{state.language=state.language==="en"?"te":"en";localStorage.setItem("adLanguage",state.language);translate(); if(state.user) goPage(state.page);});
   document.querySelectorAll("[data-page]").forEach(el=>el.addEventListener("click",()=>goPage(el.dataset.page))); document.querySelectorAll("[data-go]").forEach(el=>el.addEventListener("click",()=>{goPage(el.dataset.go);if(el.dataset.go==="patients")openPatientDialog();})); $("menuButton").addEventListener("click",()=>$("sidebar").classList.toggle("open")); $("closePatientRecord").addEventListener("click",()=>$("patientRecordDialog").close()); document.addEventListener("click",e=>{const button=e.target.closest("[data-open-patient]");if(button)openPatientRecord(button.dataset.openPatient);})
-  $("logoutButton").addEventListener("click",async()=>{try{await api("/api/logout",{method:"POST",body:"{}"});}finally{showLogin();}});
+  document.addEventListener("click",e=>{const join=e.target.closest("[data-join-consultation]");const invite=e.target.closest("[data-copy-consultation-link]");const cancel=e.target.closest("[data-cancel-consultation]");const discard=e.target.closest("[data-discard-offline-draft]");if(join)joinConsultation(join.dataset.joinConsultation);else if(invite)copyConsultationLink(invite.dataset.copyConsultationLink);else if(cancel)cancelConsultation(cancel.dataset.cancelConsultation);else if(discard)discardOfflineDraft(discard.dataset.discardOfflineDraft);});
+  $("logoutButton").addEventListener("click",async()=>{closeConsultationCall();if(state.offlineMode){showLogin();return;}try{await api("/api/logout",{method:"POST",body:"{}"});}finally{showLogin();}});
   try {const session=await api("/api/session");if(session.authenticated)showApp(session.user);else showLogin();}catch{showLogin();$("loginError").textContent=t("serverUnavailable");}
   if("serviceWorker" in navigator) navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
 }

@@ -1,0 +1,61 @@
+# Synthetic-data preview only. Do not use this stack with real patient data.
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    environment:
+      AAROGYA_SESSION_SECRET: ${AAROGYA_SESSION_SECRET:?Set AAROGYA_SESSION_SECRET in deploy/.env}
+      AAROGYA_DATA_DIR: /data
+      PORT: "8000"
+    volumes:
+      - app-data:/data
+    expose:
+      - "8000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).read()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - preview
+
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in deploy/.env}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:80:80/tcp"
+      - "${BIND_ADDRESS:-127.0.0.1}:443:443/tcp"
+      - "${BIND_ADDRESS:-127.0.0.1}:443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - preview
+
+volumes:
+  app-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  preview:

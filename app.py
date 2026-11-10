@@ -6,11 +6,13 @@ the public internet without a production deployment and security review.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import hmac
 import json
 import mimetypes
 import os
+import re
 import secrets
 import sqlite3
 import struct
@@ -18,7 +20,7 @@ import time
 import unicodedata
 import uuid
 from getpass import getpass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -39,11 +41,21 @@ SESSION_SECONDS = 8 * 60 * 60
 def connect():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(DB_PATH, timeout=10)
+    db = sqlite3.connect(DB_PATH, timeout=10, factory=ClosingConnection)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA journal_mode=WAL")
     return db
+
+
+class ClosingConnection(sqlite3.Connection):
+    """Preserve sqlite's commit/rollback context behavior and close the handle."""
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
 
 
 def patient_identity_key(name, age, village, phone):
@@ -129,10 +141,23 @@ def init_db():
           notes TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'Scheduled',
           created_by TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS consultations(
+          id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id),
+          room_name TEXT UNIQUE NOT NULL, scheduled_at TEXT NOT NULL,
+          duration_minutes INTEGER NOT NULL CHECK(duration_minutes IN (15,30,45,60)),
+          status TEXT NOT NULL DEFAULT 'scheduled' CHECK(status IN ('scheduled','completed','cancelled')),
+          created_by TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS consultations_schedule ON consultations(scheduled_at DESC);
         CREATE TABLE IF NOT EXISTS audit_log(
           id INTEGER PRIMARY KEY AUTOINCREMENT, actor_id TEXT NOT NULL REFERENCES users(id),
           action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL,
           created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS offline_sync_receipts(
+          actor_id TEXT NOT NULL REFERENCES users(id), operation_id TEXT NOT NULL,
+          payload_hash TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL,
+          PRIMARY KEY(actor_id, operation_id)
         );
         """)
         db.execute("BEGIN IMMEDIATE")
@@ -166,6 +191,62 @@ def session_secret():
     if len(secret) < 32:
         raise RuntimeError("Set AAROGYA_SESSION_SECRET to a random secret of at least 32 characters before starting the server.")
     return secret.encode("utf-8")
+
+
+def jitsi_settings():
+    """Return configured private Jitsi connection settings, never a public default."""
+    domain = os.environ.get("AAROGYA_JITSI_DOMAIN", "").strip().lower()
+    app_id = os.environ.get("AAROGYA_JITSI_APP_ID", "").strip()
+    app_secret = os.environ.get("AAROGYA_JITSI_APP_SECRET", "")
+    labels = domain.split(".")
+    valid_domain = (
+        2 <= len(labels) <= 10 and len(domain) <= 253
+        and all(1 <= len(label) <= 63 and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) for label in labels)
+    )
+    if not valid_domain or not app_id or len(app_id) > 128 or len(app_secret) < 32:
+        return None
+    return {"domain": domain, "app_id": app_id, "app_secret": app_secret}
+
+
+def b64url(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def make_jitsi_token(settings, room_name):
+    """Create a short-lived HS256 token scoped to exactly one opaque room."""
+    now = int(time.time())
+    header = {"alg": "HS256", "typ": "JWT"}
+    claims = {
+        "aud": settings["app_id"],
+        "iss": settings["app_id"],
+        "sub": settings["domain"],
+        "room": room_name,
+        "iat": now,
+        "nbf": now - 10,
+        "exp": now + 10 * 60,
+        "context": {"user": {"name": "Clinician"}},
+    }
+    header_part = b64url(json.dumps(header, separators=(",", ":")).encode())
+    claims_part = b64url(json.dumps(claims, separators=(",", ":")).encode())
+    unsigned = f"{header_part}.{claims_part}"
+    signature = hmac.new(settings["app_secret"].encode("utf-8"), unsigned.encode("ascii"), hashlib.sha256).digest()
+    return f"{unsigned}.{b64url(signature)}", now + 10 * 60
+
+
+def parse_appointment_time(value):
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("Choose a valid appointment date and time.") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("Appointment time must include a time zone.")
+    parsed = parsed.astimezone(timezone.utc)
+    now = datetime.now(timezone.utc)
+    if parsed < now - timedelta(minutes=5):
+        raise ValueError("Choose an appointment time that has not passed.")
+    if parsed > now + timedelta(days=365):
+        raise ValueError("Appointment time must be within the next year.")
+    return parsed.isoformat(timespec="minutes")
 
 
 def make_session(user_id):
@@ -243,7 +324,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+        jitsi = jitsi_settings()
+        jitsi_origin = f"https://{jitsi['domain']}" if jitsi else ""
+        script_sources = "'self'" + (f" {jitsi_origin}" if jitsi else "")
+        frame_sources = jitsi_origin or "'none'"
+        self.send_header("Content-Security-Policy", f"default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src {script_sources}; connect-src 'self'; frame-src {frame_sources}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
         self.send_header("Cache-Control", "no-store" if self.path.startswith("/api/") else "no-cache")
         if length is not None:
             self.send_header("Content-Length", str(length))
@@ -302,6 +387,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/health":
                 self.json({"ok": True, "ai": {"available": False, "reason": "No validated model is installed."}})
+                return
+            if path == "/api/consultations":
+                user = self.require_user({"medical_officer", "specialist"})
+                if not user: return
+                settings = jitsi_settings()
+                with connect() as db:
+                    rows = db.execute(
+                        "SELECT c.id,c.scheduled_at,c.duration_minutes,c.status,c.created_at,"
+                        "p.name AS patient_name,p.patient_code "
+                        "FROM consultations c JOIN patients p ON p.id=c.patient_id "
+                        "ORDER BY c.scheduled_at DESC LIMIT 200"
+                    ).fetchall()
+                self.json({"configured": bool(settings), "consultations": [dict(row) for row in rows]})
                 return
             user = self.require_user()
             if not user: return
@@ -376,7 +474,7 @@ class Handler(BaseHTTPRequestHandler):
                     data = file_path.read_bytes()
                     self.send_headers(200, row["image_type"], len(data)); self.send_header("Content-Disposition", "inline; filename=screening-image"); self.end_headers(); self.wfile.write(data); return
             self.json({"error": "Not found."}, 404); return
-        if path == "/" or path in ("/index.html", "/app.js", "/style.css", "/manifest.json", "/service-worker.js", "/icon.svg"):
+        if path == "/" or path in ("/index.html", "/app.js", "/styles.css", "/offline-vault.js", "/manifest.json", "/service-worker.js", "/icon.svg"):
             name = "index.html" if path == "/" else path.lstrip("/")
             file_path = (ROOT / name).resolve()
             if file_path.parent != ROOT or not file_path.exists():
@@ -391,6 +489,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path.startswith("/api/") and not self.same_origin():
             self.json({"error": "Request origin rejected."}, 403); return
+        if path == "/api/offline/patients" and not self.headers.get("Origin"):
+            self.json({"error": "An Origin header is required for offline synchronization."}, 403); return
         try:
             if path == "/api/login":
                 data = self.body()
@@ -407,6 +507,169 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"ok": True}, extra_headers={"Set-Cookie": f"{COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"}); return
             user = self.require_user()
             if not user: return
+            if path == "/api/offline/patients":
+                if user["role"] != "health_worker":
+                    self.json({"error": "Only health workers can synchronize patient registrations."}, 403); return
+                operation_id = self.headers.get("Idempotency-Key", "").strip().lower()
+                if not re.fullmatch(r"[0-9a-f]{32}", operation_id):
+                    self.json({"error": "A valid operation idempotency key is required."}, 400); return
+
+                data = self.body()
+                payload_hash = hashlib.sha256(
+                    json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                ).hexdigest()
+                name = clean(data, "name", 120, required=True)
+                village = clean(data, "village", 120, required=True)
+                age = int(data.get("age", 0))
+                if age < 1 or age > 120:
+                    raise ValueError("Age must be between 1 and 120.")
+                if data.get("consent") is not True:
+                    raise ValueError("Patient consent is required.")
+                phone = clean(data, "phone", 24)
+                if phone and not all(ch.isdigit() or ch in "+ -()" for ch in phone):
+                    raise ValueError("Enter a valid mobile number.")
+                identity_key = patient_identity_key(name, age, village, phone)
+
+                response_status = 201
+                response_body = None
+                with connect() as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    receipt = db.execute(
+                        "SELECT payload_hash,response_json FROM offline_sync_receipts WHERE actor_id=? AND operation_id=?",
+                        (user["id"], operation_id),
+                    ).fetchone()
+                    if receipt:
+                        if receipt["payload_hash"] != payload_hash:
+                            response_status = 409
+                            response_body = {"error": "This idempotency key was already used for a different patient payload."}
+                        else:
+                            response_status = 200
+                            response_body = json.loads(receipt["response_json"])
+                    else:
+                        duplicate = db.execute(
+                            "SELECT patient_code FROM patients WHERE identity_key=? LIMIT 1", (identity_key,)
+                        ).fetchone()
+                        if duplicate:
+                            response_status = 409
+                            response_body = {
+                                "error": "A record with this name, age, village and mobile number already exists.",
+                                "duplicate": duplicate["patient_code"],
+                            }
+                        else:
+                            patient_id = str(uuid.uuid4())
+                            patient_code = f"AD-{date.today().year}-{secrets.token_hex(3).upper()}"
+                            created = now_iso()
+                            db.execute(
+                                "INSERT INTO patients(id,patient_code,name,age,gender,phone,village,district,history,symptoms,identity_key,consent,created_by,created_at) "
+                                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                (
+                                    patient_id, patient_code, name, age, clean(data, "gender", 30), phone, village,
+                                    clean(data, "district", 120), clean(data, "history", 4000),
+                                    clean(data, "symptoms", 4000), identity_key, 1, user["id"], created,
+                                ),
+                            )
+                            db.execute(
+                                "INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)",
+                                (user["id"], "created", "patient", patient_id, created),
+                            )
+                            # Store a minimal receipt, not a second copy of the patient record.
+                            response_body = {
+                                "ok": True,
+                                "operation_id": operation_id,
+                                "patient": {"id": patient_id, "patient_code": patient_code, "created_at": created},
+                            }
+                            db.execute(
+                                "INSERT INTO offline_sync_receipts(actor_id,operation_id,payload_hash,response_json,created_at) VALUES(?,?,?,?,?)",
+                                (
+                                    user["id"], operation_id, payload_hash,
+                                    json.dumps(response_body, ensure_ascii=False, separators=(",", ":")), created,
+                                ),
+                            )
+                self.json(response_body, response_status)
+                return
+            if path == "/api/consultations":
+                user = self.require_user({"medical_officer", "specialist"})
+                if not user: return
+                data = self.body()
+                patient_id = clean(data, "patient_id", 40, required=True)
+                scheduled_at = parse_appointment_time(data.get("scheduled_at", ""))
+                try:
+                    duration = int(data.get("duration_minutes", 30))
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("Choose a valid appointment length.") from exc
+                if duration not in {15, 30, 45, 60}:
+                    raise ValueError("Appointment length must be 15, 30, 45 or 60 minutes.")
+                consultation_id = str(uuid.uuid4())
+                # Room slugs are independent random values: no patient identifier or name is encoded.
+                room_name = secrets.token_hex(24)
+                created = now_iso()
+                with connect() as db:
+                    if not db.execute("SELECT 1 FROM patients WHERE id=?", (patient_id,)).fetchone():
+                        raise ValueError("Choose a registered patient.")
+                    db.execute(
+                        "INSERT INTO consultations(id,patient_id,room_name,scheduled_at,duration_minutes,created_by,created_at) "
+                        "VALUES(?,?,?,?,?,?,?)",
+                        (consultation_id, patient_id, room_name, scheduled_at, duration, user["id"], created),
+                    )
+                    db.execute(
+                        "INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)",
+                        (user["id"], "created", "consultation", consultation_id, created),
+                    )
+                    row = db.execute(
+                        "SELECT c.id,c.scheduled_at,c.duration_minutes,c.status,c.created_at,"
+                        "p.name AS patient_name,p.patient_code FROM consultations c "
+                        "JOIN patients p ON p.id=c.patient_id WHERE c.id=?",
+                        (consultation_id,),
+                    ).fetchone()
+                self.json({"consultation": dict(row)}, 201)
+                return
+            consultation_action = re.fullmatch(r"/api/consultations/([0-9a-f-]{36})/(join|cancel|invite)", path)
+            if consultation_action:
+                user = self.require_user({"medical_officer", "specialist"})
+                if not user: return
+                consultation_id, action = consultation_action.groups()
+                with connect() as db:
+                    row = db.execute(
+                        "SELECT id,room_name,status FROM consultations WHERE id=?",
+                        (consultation_id,),
+                    ).fetchone()
+                    if not row:
+                        self.json({"error": "Appointment not found."}, 404)
+                        return
+                    if row["status"] != "scheduled":
+                        self.json({"error": "Only scheduled appointments can be joined or changed."}, 409)
+                        return
+                    if action == "cancel":
+                        db.execute("UPDATE consultations SET status='cancelled' WHERE id=?", (consultation_id,))
+                        db.execute(
+                            "INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)",
+                            (user["id"], "cancelled", "consultation", consultation_id, now_iso()),
+                        )
+                        self.json({"ok": True})
+                        return
+                    settings = jitsi_settings()
+                    if not settings:
+                        self.json({"error": "Video consultation is not configured. Contact an administrator."}, 503)
+                        return
+                    if action == "invite":
+                        db.execute(
+                            "INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)",
+                            (user["id"], "generated_guest_link", "consultation", consultation_id, now_iso()),
+                        )
+                        self.json({"guest_url": f"https://{settings['domain']}/{row['room_name']}"})
+                        return
+                    token, expires_at = make_jitsi_token(settings, row["room_name"])
+                    db.execute(
+                        "INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)",
+                        (user["id"], "joined", "consultation", consultation_id, now_iso()),
+                    )
+                self.json({
+                    "domain": settings["domain"],
+                    "room_name": row["room_name"],
+                    "jwt": token,
+                    "expires_at": expires_at,
+                })
+                return
             if path == "/api/patients":
                 data = self.body()
                 name = clean(data, "name", 120, required=True); village = clean(data, "village", 120, required=True)
