@@ -1,6 +1,6 @@
 # Local MedGemma setup
 
-The integration targets the official `google/medgemma-1.5-4b-it` model. Once installed, it can generate experimental observations for clinician review. No real model run has been completed here. It is not validated for oral cancer screening and does not establish evaluation eligibility.
+The integration uses the official `google/medgemma-1.5-4b-it` model. It is installed on this workstation and completed a real local inference check on a synthetic gray image. The [runtime evidence](qa/medgemma-runtime-check.json) records that execution. It is not validated for oral cancer screening and does not establish evaluation eligibility.
 
 ## Install
 
@@ -23,7 +23,7 @@ On Windows, the app automatically finds the verified model in `models/medgemma-1
 
 For a resumable installation followed by a synthetic inference check, run `.\.medgemma-venv\Scripts\python.exe -u setup_medgemma.py`. The local check report is written to `.private-data/qa/medgemma-smoke.json`. It proves only whether this computer completed inference on a plain gray image; it does not establish clinical performance. Large weights download in parallel 8 MiB ranges, with completed chunks recorded so interrupted downloads can resume.
 
-This computer has 16 GB RAM and Intel integrated graphics. The worker uses bfloat16 weights to reduce memory requirements. CPU inference may still exceed available memory or the five-minute request limit. A compatible CUDA GPU host is preferable; successful inference has not been demonstrated here. Python 3.15 is the current app interpreter, so inference dependencies use a separate Python 3.12 environment.
+This computer has 16 GB RAM and Intel integrated graphics. The worker uses bfloat16 weights to reduce memory requirements. The synthetic CPU inference check completed within the five-minute limit; other inputs may still exceed available memory or time. Inference dependencies use a separate Python 3.12 environment.
 
 ## App behavior
 

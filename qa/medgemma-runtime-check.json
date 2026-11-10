@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-11-10T12:38:00.648402+00:00",
+  "model": "google/medgemma-1.5-4b-it",
+  "revision": "91850547d9f0b2fdd21aa7c5f4f3d1a8a52c243b",
+  "synthetic_input": true,
+  "clinical_validation": false,
+  "inference_passed": true,
+  "generated_text": "**Image quality**\n\nThe image quality is poor. The image is blurry and lacks detail.\n\n**Visible observations**\n\nThe image shows a gray, indistinct shape. There are no discernible features or details within the image.\n\n**Limitations**\n\nThe image is too blurry and lacks detail to make any meaningful observations. The image is unsuitable for any form of analysis.\n\n**Uncertainty**\n\nThe image is unsuitable for any form of analysis.\n\n**Conclusion**\n\nThe image appears unsuitable or unrelated to any form of oral-health research.",
+  "check_scope": "Local runtime execution on one 256x256 plain gray synthetic image. No clinical accuracy was measured.",
+  "python_version": "3.12.10",
+  "runtime_packages": {
+    "torch": "2.15.0",
+    "transformers": "4.57.6",
+    "Pillow": "12.3.0",
+    "accelerate": "1.15.0"
+  },
+  "checkpoint_download_checks": "Installer verified upstream file sizes and published LFS SHA-256 digests before enabling the model."
+}

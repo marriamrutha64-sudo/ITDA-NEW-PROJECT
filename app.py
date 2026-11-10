@@ -20,6 +20,7 @@ import time
 import unicodedata
 import uuid
 import medgemma_runtime
+from auth_limits import LoginThrottle
 from getpass import getpass
 from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
@@ -37,6 +38,8 @@ MAX_IMAGE = 7 * 1024 * 1024
 ROLES = {"admin", "health_worker", "medical_officer", "specialist"}
 COOKIE_NAME = "aarogya_session"
 SESSION_SECONDS = 8 * 60 * 60
+LOGIN_ACCOUNTS = LoginThrottle(limit=10)
+LOGIN_PEERS = LoginThrottle(limit=100)
 
 
 def connect():
@@ -425,7 +428,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"authenticated": bool(user), "user": user})
                 return
             if path == "/api/health":
-                self.json({"ok": True, "ai": medgemma_runtime.status()})
+                self.json({"ok": True, "service": "aarogya-drishti", "ai": medgemma_runtime.status()})
                 return
             if path == "/api/consultations":
                 user = self.require_user({"medical_officer", "specialist"})
@@ -539,17 +542,26 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path.startswith("/api/") and not self.same_origin():
             self.json({"error": "Request origin rejected."}, 403); return
+        if path.startswith("/api/") and os.environ.get("AAROGYA_PUBLIC_DEMO") == "1" and not self.headers.get("Origin"):
+            self.json({"error": "An Origin header is required for this public demonstration."}, 403); return
         if path == "/api/offline/patients" and not self.headers.get("Origin"):
             self.json({"error": "An Origin header is required for offline synchronization."}, 403); return
         try:
             if path == "/api/login":
+                if not LOGIN_PEERS.allow(self.client_address[0]):
+                    self.json({"error": "Too many sign-in attempts. Wait five minutes and retry."}, 429, {"Retry-After": "300"}); return
                 data = self.body()
                 username = str(data.get("username", "")).strip().lower()
                 password = str(data.get("password", ""))
+                if len(username) > 128 or len(password) > 1024:
+                    raise ValueError("Sign-in input is too long.")
+                if not LOGIN_ACCOUNTS.allow(username):
+                    self.json({"error": "Too many sign-in attempts for this account. Wait five minutes and retry."}, 429, {"Retry-After": "300"}); return
                 with connect() as db:
                     row = db.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
                 if not row or not verify_password(password, row["password_hash"]):
                     self.json({"error": "Username or password is incorrect."}, 401); return
+                LOGIN_ACCOUNTS.clear(username)
                 token = make_session(row["id"])
                 secure = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
                 self.json({"user": {"id":row["id"],"username":row["username"],"role":row["role"],"display_name":row["display_name"]}}, extra_headers={"Set-Cookie": f"{COOKIE_NAME}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_SECONDS}" + secure}); return

@@ -117,7 +117,8 @@ class ApiFlowTests(unittest.TestCase):
 
     def test_ai_endpoint_never_fabricates_an_unavailable_prediction(self):
         client, _ = self.login("fieldworker", "synthetic-password-123")
-        status, result = self.request_json(client, "/api/ai/analyze", {}, "POST")
+        with patch.dict(os.environ, {"AAROGYA_MEDGEMMA_MODEL_DIR": str(app.DATA_DIR / "missing-model")}):
+            status, result = self.request_json(client, "/api/ai/analyze", {}, "POST")
         self.assertEqual(status, 503)
         self.assertIn("no trained, validated model is installed", result["error"])
 

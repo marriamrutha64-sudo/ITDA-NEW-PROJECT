@@ -1,6 +1,8 @@
 # Aarogya Drishti
 
-MedGemma 1.5 4B local inference integration and setup: [MEDGEMMA_SETUP.md](MEDGEMMA_SETUP.md). The optional integration requires separately downloaded gated weights and a compatible inference environment. Generated observations remain unvalidated for oral screening; no real model run has been completed in this workspace.
+MedGemma 1.5 4B local inference integration and setup: [MEDGEMMA_SETUP.md](MEDGEMMA_SETUP.md). The official checkpoint is installed on this workstation and completed a real synthetic-image runtime check. Generated observations remain unvalidated for oral screening; see [runtime evidence](qa/medgemma-runtime-check.json).
+
+To present the full app on another device, run `python share_demo.py` and use its temporary HTTPS address. See [SHARE_DEMO.md](SHARE_DEMO.md) for account access, fictional demo data and availability limits.
 
 A mobile-first, installable web prototype for a community oral-health screening and care-coordination workflow. It uses only Python's standard library and browser APIs; no paid service or external runtime package is required.
 
@@ -13,7 +15,7 @@ A mobile-first, installable web prototype for a community oral-health screening 
 - Mobile-friendly patient registration and navigation, phone camera capture through the file picker, English and Telugu interface labels, and installable PWA shell.
 - Limited offline workflow for new patient registrations: encrypted IndexedDB drafts can be manually synchronized by the same authenticated health-worker account. Offline screening photos and existing-record browsing are not supported.
 - Image upload checks for file type, dimensions, megapixel limit, and file size. The browser also checks approximate brightness and contrast. These checks do not identify disease or guarantee clinical image quality.
-- The AI status and analysis endpoint clearly report that no model is installed. No predictions are fabricated.
+- The AI endpoint runs local MedGemma only after a verified checkpoint installation. Missing models and failed inference return explicit errors. Generated text is labelled experimental and unvalidated; no model accuracy or risk score is fabricated.
 
 ## Run locally on Windows
 
@@ -59,7 +61,7 @@ Jitsi's Docker deployment needs a production host with the Jitsi `PUBLIC_URL`, H
 
 ## Evaluation status and limits
 
-The supplied AAROHAN evaluation rules require a trained model, documented dataset provenance and licenses, patient-separated training/validation/testing, a saved checkpoint, confusion matrix and metrics, hidden-data evaluation, secure deployment, and end-to-end testing. This workspace contains no model, data inventory, labels, checkpoint, or validation results. Those items cannot be truthfully supplied by adapting a UI repository. Until an authorized model and evidence are added, AI inference is disabled and this prototype is **not for clinical use**.
+The supplied AAROHAN evaluation rules require a trained model, documented dataset provenance and licenses, patient-separated training/validation/testing, a saved checkpoint, confusion matrix and metrics, hidden-data evaluation, secure deployment, and end-to-end testing. An official MedGemma foundation checkpoint is installed and runs locally. This workspace still has no task-specific labeled oral-health dataset, patient-separated evaluation splits, confusion matrix, required performance metrics or independent clinical validation. A synthetic runtime check does not supply that evidence. This prototype remains **not for clinical use**.
 
 Other production requirements remain before deployment with real patient information: security and privacy review, encrypted server storage and transport, stronger operational access controls, clinician and field-worker usability validation, offline screening/photo capture and broader synchronization, backup/recovery, and an HTTPS hosting environment. The PWA caches only its public interface shell; server patient records and images are never cached for offline browsing.
 

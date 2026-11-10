@@ -1,6 +1,8 @@
 # AI Validation Record
 
-> **Current status: NOT IMPLEMENTED.** This workspace contains no trained model, model checkpoint, training dataset, reference labels, or validation results. Every measured field below is intentionally blank. Do not fill values from estimates, demonstrations, synthetic outputs, or published results from another model. Do not enable prediction output until an authorized model and its evidence are supplied and independently reviewed.
+> **Current status: ORAL-SCREENING VALIDATION NOT COMPLETED.** An official MedGemma foundation checkpoint is installed and completed a real synthetic-image inference check. There is no task-specific training dataset, reference-label inventory, patient-separated test set or clinical performance evidence. Measured fields below remain blank; synthetic outputs and upstream published metrics cannot fill them. Experimental generated observations are available with explicit warnings and clinician-only authorization.
+
+Installed foundation model: `google/medgemma-1.5-4b-it`, revision `91850547d9f0b2fdd21aa7c5f4f3d1a8a52c243b`. See [runtime check](qa/medgemma-runtime-check.json). This records execution only; it is not a validation result for oral disease detection.
 
 This template records the AI evidence requested by the AAROHAN Aarogya Drishti final evaluation rules. Completing it does not by itself establish clinical validity or authorize clinical use.
 

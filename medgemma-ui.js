@@ -6,6 +6,19 @@ document.addEventListener("DOMContentLoaded", () => {
     available = Boolean(data.ai?.available);
     if (available) {
       document.getElementById("modelStatus").textContent = "MedGemma configured · unvalidated";
+      if (typeof translations !== "undefined") {
+        Object.assign(translations.en, {
+          notConfigured:"Local MedGemma installed",
+          modelCopy:"Local MedGemma can generate experimental observations. Oral screening performance has not been validated; clinician review is required.",
+          experimentalOnly:"Unvalidated model observations"
+        });
+        Object.assign(translations.te, {
+          notConfigured:"స్థానిక MedGemma ఇన్‌స్టాల్ అయింది",
+          modelCopy:"MedGemma ప్రయోగాత్మక పరిశీలనలను రూపొందించగలదు. నోటి పరీక్ష ఖచ్చితత్వం ఇంకా ధృవీకరించలేదు; వైద్యుని సమీక్ష అవసరం.",
+          experimentalOnly:"ధృవీకరించని మోడల్ పరిశీలనలు"
+        });
+        if (typeof translate === "function") translate();
+      }
     }
     enhance();
   }).catch(() => {});

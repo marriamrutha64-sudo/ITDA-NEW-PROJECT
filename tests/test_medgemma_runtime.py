@@ -12,7 +12,7 @@ import medgemma_runtime as runtime
 
 class MedGemmaTests(unittest.TestCase):
     def test_missing_weights_fail_without_starting_worker(self):
-        with patch.dict(os.environ, {}, clear=True), patch.object(subprocess, "run") as run:
+        with patch.dict(os.environ, {"AAROGYA_MEDGEMMA_MODEL_DIR": "__test_missing_model__"}, clear=True), patch.object(subprocess, "run") as run:
             with self.assertRaises(runtime.InferenceUnavailable):
                 runtime.analyze("synthetic.png")
             run.assert_not_called()
