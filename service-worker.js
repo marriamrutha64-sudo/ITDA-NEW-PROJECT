@@ -1,4 +1,4 @@
-const CACHE = "aarogya-shell-v3";
+const CACHE = "aarogya-shell-v4";
 const SHELL = ["/", "/styles.css", "/app.js", "/medgemma-ui.js", "/manifest.json", "/icon.svg", "/offline-vault.js"];
 self.addEventListener("install", event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL))));
 self.addEventListener("activate", event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))));

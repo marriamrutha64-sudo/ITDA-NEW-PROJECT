@@ -209,6 +209,26 @@ def jitsi_settings():
     return {"domain": domain, "app_id": app_id, "app_secret": app_secret}
 
 
+PUBLIC_VIDEO_DEMO_NOTICE = (
+    "Public Jitsi demonstration: use synthetic data only. "
+    "The public service may require the meeting host to sign in. "
+    "Do not discuss real patient information."
+)
+
+
+def video_settings():
+    """Public demo is a separate explicit opt-in; private Jitsi stays the default."""
+    provider = os.environ.get("AAROGYA_VIDEO_PROVIDER", "private").strip().lower()
+    if provider == "public_demo":
+        return {"provider": "public_demo", "domain": "meet.jit.si", "notice": PUBLIC_VIDEO_DEMO_NOTICE}
+    if provider != "private":
+        return None
+    settings = jitsi_settings()
+    if not settings or settings["domain"] == "meet.jit.si":
+        return None
+    return {**settings, "provider": "private", "notice": "Private Jitsi video is configured."}
+
+
 def b64url(data):
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
@@ -248,6 +268,24 @@ def parse_appointment_time(value):
     if parsed > now + timedelta(days=365):
         raise ValueError("Appointment time must be within the next year.")
     return parsed.isoformat(timespec="minutes")
+
+
+def consultation_access_window(consultation):
+    """Describe when the application will issue new call access for an appointment."""
+    starts_at = datetime.fromisoformat(consultation["scheduled_at"].replace("Z", "+00:00"))
+    opens_at = starts_at - timedelta(minutes=15)
+    closes_at = starts_at + timedelta(minutes=int(consultation["duration_minutes"]) + 30)
+    now = datetime.fromtimestamp(time.time(), timezone.utc)
+    within_window = opens_at <= now <= closes_at
+    state = consultation["status"]
+    if state == "scheduled":
+        state = "open" if within_window else "upcoming" if now < opens_at else "expired"
+    return {
+        "join_opens_at": opens_at.isoformat(timespec="seconds"),
+        "join_closes_at": closes_at.isoformat(timespec="seconds"),
+        "join_window_open": within_window and consultation["status"] == "scheduled",
+        "access_state": state,
+    }
 
 
 def make_session(user_id):
@@ -325,7 +363,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
-        jitsi = jitsi_settings()
+        jitsi = video_settings()
         jitsi_origin = f"https://{jitsi['domain']}" if jitsi else ""
         script_sources = "'self'" + (f" {jitsi_origin}" if jitsi else "")
         frame_sources = jitsi_origin or "'none'"
@@ -392,7 +430,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/consultations":
                 user = self.require_user({"medical_officer", "specialist"})
                 if not user: return
-                settings = jitsi_settings()
+                settings = video_settings()
                 with connect() as db:
                     rows = db.execute(
                         "SELECT c.id,c.scheduled_at,c.duration_minutes,c.status,c.created_at,"
@@ -400,7 +438,18 @@ class Handler(BaseHTTPRequestHandler):
                         "FROM consultations c JOIN patients p ON p.id=c.patient_id "
                         "ORDER BY c.scheduled_at DESC LIMIT 200"
                     ).fetchall()
-                self.json({"configured": bool(settings), "consultations": [dict(row) for row in rows]})
+                consultations = []
+                for row in rows:
+                    item = dict(row)
+                    item.update(consultation_access_window(item))
+                    item["can_join"] = bool(settings) and item["join_window_open"]
+                    consultations.append(item)
+                self.json({
+                    "configured": bool(settings),
+                    "provider": settings["provider"] if settings else "private",
+                    "notice": settings["notice"] if settings else "Video consultation is not configured.",
+                    "consultations": consultations,
+                })
                 return
             user = self.require_user()
             if not user: return
@@ -624,14 +673,17 @@ class Handler(BaseHTTPRequestHandler):
                     ).fetchone()
                 self.json({"consultation": dict(row)}, 201)
                 return
-            consultation_action = re.fullmatch(r"/api/consultations/([0-9a-f-]{36})/(join|cancel|invite)", path)
+            consultation_action = re.fullmatch(r"/api/consultations/([0-9a-f-]{36})/(join|cancel|invite|complete)", path)
             if consultation_action:
                 user = self.require_user({"medical_officer", "specialist"})
                 if not user: return
                 consultation_id, action = consultation_action.groups()
                 with connect() as db:
+                    # Serialize lifecycle changes with issuing new access so a
+                    # concurrent cancellation cannot race a stale status read.
+                    db.execute("BEGIN IMMEDIATE")
                     row = db.execute(
-                        "SELECT id,room_name,status FROM consultations WHERE id=?",
+                        "SELECT id,room_name,status,scheduled_at,duration_minutes FROM consultations WHERE id=?",
                         (consultation_id,),
                     ).fetchone()
                     if not row:
@@ -640,36 +692,57 @@ class Handler(BaseHTTPRequestHandler):
                     if row["status"] != "scheduled":
                         self.json({"error": "Only scheduled appointments can be joined or changed."}, 409)
                         return
-                    if action == "cancel":
-                        db.execute("UPDATE consultations SET status='cancelled' WHERE id=?", (consultation_id,))
+                    if action in {"cancel", "complete"}:
+                        next_status = "cancelled" if action == "cancel" else "completed"
+                        db.execute("UPDATE consultations SET status=? WHERE id=?", (next_status, consultation_id))
                         db.execute(
                             "INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)",
-                            (user["id"], "cancelled", "consultation", consultation_id, now_iso()),
+                            (user["id"], next_status, "consultation", consultation_id, now_iso()),
                         )
-                        self.json({"ok": True})
+                        self.json({"ok": True, "status": next_status})
                         return
-                    settings = jitsi_settings()
+                    settings = video_settings()
                     if not settings:
                         self.json({"error": "Video consultation is not configured. Contact an administrator."}, 503)
+                        return
+                    window = consultation_access_window(row)
+                    if not window["join_window_open"]:
+                        self.json({
+                            "error": "Call access is available from 15 minutes before the appointment until 30 minutes after its scheduled end.",
+                            **window,
+                        }, 409)
+                        return
+                    if settings["provider"] == "public_demo" and self.body().get("acknowledge_demo") is not True:
+                        self.json({"error": "Acknowledge that this public video demonstration uses synthetic data only."}, 400)
                         return
                     if action == "invite":
                         db.execute(
                             "INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)",
                             (user["id"], "generated_guest_link", "consultation", consultation_id, now_iso()),
                         )
-                        self.json({"guest_url": f"https://{settings['domain']}/{row['room_name']}"})
+                        self.json({
+                            "guest_url": f"https://{settings['domain']}/{row['room_name']}",
+                            "provider": settings["provider"],
+                            "notice": settings["notice"],
+                            "join_closes_at": window["join_closes_at"],
+                        })
                         return
-                    token, expires_at = make_jitsi_token(settings, row["room_name"])
+                    response = {
+                        "provider": settings["provider"],
+                        "domain": settings["domain"],
+                        "room_name": row["room_name"],
+                        "notice": settings["notice"],
+                        "join_closes_at": window["join_closes_at"],
+                        "expires_at": None,
+                    }
+                    if settings["provider"] == "private":
+                        token, expires_at = make_jitsi_token(settings, row["room_name"])
+                        response.update({"jwt": token, "expires_at": expires_at})
                     db.execute(
                         "INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)",
                         (user["id"], "joined", "consultation", consultation_id, now_iso()),
                     )
-                self.json({
-                    "domain": settings["domain"],
-                    "room_name": row["room_name"],
-                    "jwt": token,
-                    "expires_at": expires_at,
-                })
+                self.json(response)
                 return
             if path == "/api/patients":
                 data = self.body()

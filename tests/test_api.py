@@ -4,6 +4,8 @@ import os
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
+from datetime import datetime, timezone
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -130,6 +132,38 @@ class ApiFlowTests(unittest.TestCase):
             with self.subTest(path=path), client.open(self.base_url + path, timeout=5) as response:
                 self.assertEqual(response.status, 200)
                 self.assertGreater(len(response.read()), 0)
+
+    def test_public_demo_http_flow_acknowledgement_invitation_and_completion(self):
+        client, _ = self.login("admin", "synthetic-admin-123")
+        with patch.dict(os.environ, {"AAROGYA_VIDEO_PROVIDER": "public_demo"}):
+            status, patient = self.request_json(client, "/api/patients", {
+                "name": "Synthetic Video Demonstration", "age": 42,
+                "village": "Synthetic Video Village", "phone": "+1 555 0199", "consent": True,
+            }, "POST")
+            self.assertEqual(status, 201)
+            status, appointment = self.request_json(client, "/api/consultations", {
+                "patient_id": patient["patient"]["id"],
+                "scheduled_at": datetime.now(timezone.utc).isoformat(), "duration_minutes": 15,
+            }, "POST")
+            self.assertEqual(status, 201)
+            consultation_id = appointment["consultation"]["id"]
+            status, listing = self.request_json(client, "/api/consultations")
+            self.assertEqual(status, 200)
+            self.assertEqual(listing["provider"], "public_demo")
+            status, _ = self.request_json(client, f"/api/consultations/{consultation_id}/join", {}, "POST")
+            self.assertEqual(status, 400)
+            status, joining = self.request_json(client, f"/api/consultations/{consultation_id}/join", {"acknowledge_demo": True}, "POST")
+            self.assertEqual(status, 200)
+            self.assertEqual(joining["domain"], "meet.jit.si")
+            self.assertNotIn("jwt", joining)
+            status, invitation = self.request_json(client, f"/api/consultations/{consultation_id}/invite", {"acknowledge_demo": True}, "POST")
+            self.assertEqual(status, 200)
+            self.assertEqual(invitation["guest_url"], "https://meet.jit.si/" + joining["room_name"])
+            self.assertNotIn(patient["patient"]["id"], invitation["guest_url"])
+            status, _ = self.request_json(client, f"/api/consultations/{consultation_id}/complete", {}, "POST")
+            self.assertEqual(status, 200)
+            status, _ = self.request_json(client, f"/api/consultations/{consultation_id}/join", {"acknowledge_demo": True}, "POST")
+            self.assertEqual(status, 409)
 
 
 if __name__ == "__main__":

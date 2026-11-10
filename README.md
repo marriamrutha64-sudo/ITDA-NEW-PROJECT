@@ -37,6 +37,8 @@ Draft payloads are encrypted with Web Crypto AES-GCM and PBKDF2 before IndexedDB
 
 ## Private Jitsi video configuration
 
+For the explicitly selected synthetic-data public Jitsi demo, see [VIDEO_DEMO.md](VIDEO_DEMO.md) and run `scripts/start-video-demo.ps1`. Public demo mode is enabled only by `AAROGYA_VIDEO_PROVIDER=public_demo`; it does not use private JWT credentials and requires the doctor's own Jitsi sign-in.
+
 Video calls use the Jitsi Meet External API from the configured self-hosted Jitsi domain. There is no default `meet.jit.si` fallback. If any setting below is missing or invalid, the Consultation area continues to allow appointment records and displays “Video consultation is not configured”; Join and patient-link actions remain unavailable.
 
 Set these variables in the server process environment. The application secret must match the `JWT_APP_SECRET` configured on the private Jitsi server and must be at least 32 characters. Keep it in a deployment secret manager or protected environment file; never commit it.

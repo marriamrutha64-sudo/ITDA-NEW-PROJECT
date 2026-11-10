@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from app import Handler, jitsi_settings, make_jitsi_token
+from app import Handler, consultation_access_window, jitsi_settings, make_jitsi_token, video_settings
 
 
 def decode_part(part):
@@ -136,12 +136,15 @@ class ConsultationRouteTests(unittest.TestCase):
                 );
                 INSERT INTO patients VALUES('patient-internal-id','Patient Example','AD-2030-ABC123');
             """)
+            db.execute("UPDATE consultations SET scheduled_at=?", (datetime.now(timezone.utc).isoformat(),))
+            db.commit()
         finally:
             db.close()
         self.connections = []
         self.connect_patch = patch("app.connect", side_effect=self.connect_test_db)
         self.connect_patch.start()
         self.env_patch = patch.dict(os.environ, {
+            "AAROGYA_VIDEO_PROVIDER": "private",
             "AAROGYA_JITSI_DOMAIN": "",
             "AAROGYA_JITSI_APP_ID": "",
             "AAROGYA_JITSI_APP_SECRET": "",
@@ -239,8 +242,7 @@ class ConsultationRouteTests(unittest.TestCase):
         self.assertNotIn("patient-internal-id", guest_url)
         self.assertNotIn("AD-2030-ABC123", guest_url)
 
-    @patch("app.time.time", return_value=1_800_000_000)
-    def test_configured_admin_join_receives_room_scoped_token_without_patient_details(self, _clock):
+    def test_configured_admin_join_receives_room_scoped_token_without_patient_details(self):
         config = {
             "AAROGYA_JITSI_DOMAIN": "meet.private.example.org",
             "AAROGYA_JITSI_APP_ID": "aarogya-drishti",
@@ -259,6 +261,124 @@ class ConsultationRouteTests(unittest.TestCase):
         self.assertEqual(claims["exp"] - claims["iat"], 600)
         for private_value in ("Patient Example", "patient-internal-id", "AD-2030-ABC123"):
             self.assertNotIn(private_value, json.dumps(data))
+
+    def configured_environment(self):
+        return patch.dict(os.environ, {
+            "AAROGYA_JITSI_DOMAIN": "meet.private.example.org",
+            "AAROGYA_JITSI_APP_ID": "aarogya-drishti",
+            "AAROGYA_JITSI_APP_SECRET": self.secret,
+        })
+
+    def set_appointment(self, *, status="scheduled", minutes_from_now=0):
+        starts_at = datetime.now(timezone.utc) + timedelta(minutes=minutes_from_now)
+        with self.connect_test_db() as db:
+            db.execute("UPDATE consultations SET status=?,scheduled_at=?", (status, starts_at.isoformat()))
+
+    def action(self, action, role="medical_officer", body=None):
+        handler = FakeHandler(
+            f"/api/consultations/11111111-1111-4111-8111-111111111111/{action}",
+            {"id": "clinician-id", "role": role}, body,
+        )
+        Handler.do_POST(handler)
+        return handler.response
+
+    def test_new_call_access_is_rejected_before_and_after_appointment_window(self):
+        with self.configured_environment():
+            for minutes, expected_state in ((16, "upcoming"), (-61, "expired")):
+                self.set_appointment(minutes_from_now=minutes)
+                for action in ("join", "invite"):
+                    with self.subTest(minutes=minutes, action=action):
+                        body, status, _ = self.action(action)
+                        self.assertEqual(status, 409)
+                        self.assertEqual(body["access_state"], expected_state)
+                        self.assertNotIn("jwt", body)
+                        self.assertNotIn("guest_url", body)
+
+    def test_cancelled_and_completed_appointments_reject_new_access(self):
+        with self.configured_environment():
+            for appointment_status in ("cancelled", "completed"):
+                self.set_appointment(status=appointment_status)
+                for action in ("join", "invite"):
+                    with self.subTest(status=appointment_status, action=action):
+                        self.assertEqual(self.action(action)[1], 409)
+
+    def test_complete_records_transition_and_audit_without_requiring_video_configuration(self):
+        body, status, _ = self.action("complete")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["status"], "completed")
+        with self.connect_test_db() as db:
+            self.assertEqual(db.execute("SELECT status FROM consultations").fetchone()[0], "completed")
+            audit = db.execute("SELECT action,entity_type FROM audit_log").fetchone()
+        self.assertEqual(tuple(audit), ("completed", "consultation"))
+        self.assertEqual(self.action("complete")[1], 409)
+
+    def test_health_worker_cannot_complete_appointment(self):
+        self.assertEqual(self.action("complete", role="health_worker")[1], 403)
+
+    def test_list_exposes_call_window_without_exposing_room(self):
+        handler = FakeHandler("/api/consultations", {"id": "doctor-id", "role": "medical_officer"})
+        with self.configured_environment():
+            Handler.do_GET(handler)
+        item = handler.response[0]["consultations"][0]
+        self.assertTrue(item["can_join"])
+        self.assertEqual(item["access_state"], "open")
+        self.assertIn("join_opens_at", item)
+        self.assertIn("join_closes_at", item)
+        self.assertNotIn("room_name", item)
+
+    def test_public_demo_requires_explicit_opt_in_and_uses_fixed_domain(self):
+        self.assertIsNone(video_settings())
+        with patch.dict(os.environ, {"AAROGYA_VIDEO_PROVIDER": "public_demo", "AAROGYA_JITSI_DOMAIN": "untrusted.example.org"}):
+            settings = video_settings()
+        self.assertEqual(settings["provider"], "public_demo")
+        self.assertEqual(settings["domain"], "meet.jit.si")
+        self.assertNotIn("app_secret", settings)
+
+    def test_public_demo_join_and_invite_require_synthetic_acknowledgement(self):
+        with patch.dict(os.environ, {"AAROGYA_VIDEO_PROVIDER": "public_demo"}):
+            for action in ("join", "invite"):
+                with self.subTest(action=action):
+                    self.assertEqual(self.action(action)[1], 400)
+                    self.assertEqual(self.action(action, body={"acknowledge_demo": False})[1], 400)
+
+    def test_public_demo_join_has_no_jwt_or_patient_information(self):
+        with patch.dict(os.environ, {"AAROGYA_VIDEO_PROVIDER": "public_demo"}):
+            body, status, _ = self.action("join", body={"acknowledge_demo": True})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["provider"], "public_demo")
+        self.assertEqual(body["domain"], "meet.jit.si")
+        self.assertIsNone(body["expires_at"])
+        self.assertNotIn("jwt", body)
+        self.assertIn("join_closes_at", body)
+        for private_value in ("Patient Example", "patient-internal-id", "AD-2030-ABC123"):
+            self.assertNotIn(private_value, json.dumps(body))
+
+    def test_public_demo_guest_link_uses_opaque_room_and_discloses_provider(self):
+        with patch.dict(os.environ, {"AAROGYA_VIDEO_PROVIDER": "public_demo"}):
+            body, status, _ = self.action("invite", body={"acknowledge_demo": True})
+        self.assertEqual(status, 200)
+        self.assertRegex(body["guest_url"], r"^https://meet\.jit\.si/[a-f0-9]{48}$")
+        self.assertEqual(body["provider"], "public_demo")
+        self.assertIn("synthetic", body["notice"])
+
+    def test_public_demo_list_is_configured_without_jwt_credentials(self):
+        handler = FakeHandler("/api/consultations", {"id": "doctor-id", "role": "medical_officer"})
+        with patch.dict(os.environ, {"AAROGYA_VIDEO_PROVIDER": "public_demo"}):
+            Handler.do_GET(handler)
+        self.assertTrue(handler.response[0]["configured"])
+        self.assertEqual(handler.response[0]["provider"], "public_demo")
+        self.assertTrue(handler.response[0]["consultations"][0]["can_join"])
+
+
+class ConsultationWindowTests(unittest.TestCase):
+    def test_exact_boundaries_and_duration(self):
+        appointment = {"scheduled_at": "2030-01-01T12:00:00+00:00", "duration_minutes": 45, "status": "scheduled"}
+        for timestamp, expected in (("2030-01-01T11:45:00+00:00", True),
+                                    ("2030-01-01T13:15:00+00:00", True),
+                                    ("2030-01-01T13:15:01+00:00", False)):
+            with self.subTest(timestamp=timestamp), patch("app.time.time", return_value=datetime.fromisoformat(timestamp).timestamp()):
+                window = consultation_access_window(appointment)
+                self.assertEqual(window["join_window_open"], expected)
 
 
 if __name__ == "__main__":

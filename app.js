@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const state = { user: null, page: "home", patients: [], language: localStorage.getItem("adLanguage") || "en", imageUrl: null, toastTimer: 0, consultationsConfigured: false, jitsiApi: null, jitsiScriptPromise: null, offlineMode: false, vaultOwner: null, syncErrors: {}, syncingDrafts: false };
+Object.assign(state, {videoProvider:"private",callGeneration:0,activeConsultation:null});
 
 const translations = {
   en: { secureAccess:"SECURE ACCESS", signIn:"Sign in to your workspace", loginHelp:"Use your assigned account to access patient records.", username:"Username", password:"Password", localOnly:"Local demonstration. Do not enter real patient data until your deployment has been security-reviewed.", districtCare:"DISTRICT CARE", overview:"Overview", patients:"Patients", screening:"Oral screening", clinicalReview:"Clinical review", careCoordination:"Care coordination", connecting:"Connecting…", workspace:"Workspace", fieldWorkspace:"FIELD WORKSPACE", goodDay:"Good day", overviewSubtitle:"A clear view of patients moving through care.", registerPatient:"Register patient", researchNotice:"Research and screening support only", safetyCopy:"This application does not diagnose disease. A qualified clinician makes every clinical decision.", registeredPatients:"Registered patients", allRecords:"All records in this workspace", screeningsInQueue:"Screenings in queue", awaitingReview:"Awaiting clinical review", followUpsDue:"Follow-ups due", nextSevenDays:"Scheduled in the next 7 days", referralsOpen:"Open referrals", careInMotion:"Care coordination in motion", carePathway:"CARE PATHWAY", journeyTitle:"Patient journey", viewPatients:"View patients", registration:"Registration", identityHistory:"Identity and history", photoAssessment:"Photo and assessment", clinician:"Clinician", medicalReview:"Medical review", followUp:"Follow-up", continuityCare:"Continuity of care", journeyEmpty:"Register a patient to begin their care pathway.", modelReadiness:"MODEL READINESS", imageAnalysis:"Image analysis", notConfigured:"Not configured", modelCopy:"No validated model is installed. No predictions will be generated.", experimentalOnly:"Experimental research only", latestActivity:"LATEST ACTIVITY", recentPatients:"Recent patients", seeAll:"See all", patient:"PATIENT", patientId:"PATIENT ID", village:"VILLAGE", registered:"REGISTERED", noPatients:"No patients yet", noPatientsCopy:"Your registered patients will appear here.", registerFirst:"Register your first patient", careRecords:"CARE RECORDS", patientsSubtitle:"Register people and keep their care journey organized.", searchPatients:"Search patient name or ID", ageGender:"AGE / GENDER", patientsEmptyCopy:"Add a patient to start their screening and care record.", oralHealth:"ORAL HEALTH", screeningSubtitle:"Capture a photograph and document screening observations.", newScreening:"New screening", selectPatient:"Patient", healthWorker:"Health worker", areaObserved:"Area observed", selectArea:"Select area", symptomDuration:"Symptom duration", durationPlaceholder:"e.g. 2 weeks", screenNotes:"Screening notes", oralPhoto:"Oral photograph", photoQualityPrompt:"Choose a clear, well-lit image. Quality checks will appear here.", saveScreening:"Save screening", photoGuide:"PHOTO GUIDE", betterPhoto:"A better photo helps review", goodLight:"Use good light", goodLightCopy:"Bright, even light helps show the area clearly.", steadyFocus:"Hold steady and focus", steadyFocusCopy:"Keep the camera close enough to see details.", wholeArea:"Show the whole area", wholeAreaCopy:"Avoid fingers, shadows, blur and unrelated objects.", consentFirst:"Get consent first", consentCopy:"Explain the photograph and obtain patient consent.", noDiagnosis:"No automatic diagnosis", noDiagnosisCopy:"A qualified clinician must assess every finding. Image quality checks do not identify disease.", screeningRecords:"Screening records", clinicalOversight:"CLINICAL OVERSIGHT", reviewSubtitle:"Qualified medical officers document their independent assessment.", recordReview:"Record a review", medicalOfficer:"Medical officer", reviewStatus:"Review status", clinicalObservations:"Clinical observations", saveReview:"Save review", decisionSupport:"DECISION SUPPORT", clinicianAuthority:"Clinical decisions stay with the clinician", clinicianCopy:"This workspace records human review. It does not interpret images or recommend a diagnosis, biopsy, or treatment.", researchReminder:"Any experimental model output must be separately validated and must never replace professional judgment.", reviewRecords:"Review records", careSubtitle:"Track referrals, appointments and follow-up actions.", newReferral:"New referral", hospital:"Hospital / facility", department:"Department", referralReason:"Reason for referral", appointmentDate:"Appointment date", saveReferral:"Save referral", newFollowup:"Schedule follow-up", followupDate:"Follow-up date", followupNotes:"Notes", saveFollowup:"Schedule follow-up", careRecordsTitle:"Referrals and follow-ups", fullName:"Full name", age:"Age", gender:"Gender", mobile:"Mobile number", district:"District", medicalHistory:"Relevant medical history", currentSymptoms:"Current symptoms", consentRecord:"I confirm the patient has been informed about this record and consents to its use for this demonstration.", cancel:"Cancel", savePatient:"Save patient", localPrototype:"Local prototype • NOT FOR CLINICAL USE", noScreenings:"No screening records yet.", noReviews:"No clinical reviews recorded yet.", noCareRecords:"No referrals or follow-ups yet.", patientSaved:"Patient record saved.", screeningSaved:"Screening saved for clinician review.", reviewSaved:"Clinical review saved.", referralSaved:"Referral saved.", followupSaved:"Follow-up scheduled.", serverUnavailable:"Server unavailable. Your information was not confirmed as saved.", signInRequired:"Sign in to continue.", patientRequired:"Register a patient before continuing.", imageDimensions:"Image is too small to assess. Use a clear image at least 240 × 240 pixels.", imageNotUsable:"This file could not be read as a supported image.", imageReady:"Image format and dimensions look suitable. A person must still check focus, lighting and relevance.", imageCaution:"Image quality looks limited. Consider retaking it in better light and focus.", imageSizeLimit:"Choose an image smaller than 7 MB.", loadError:"Could not load this information.", serverOnline:"Local server connected", serverOffline:"Local server unavailable", syncing:"Loading workspace…", ageYears:"years", viewRecord:"Open", screeningCount:"screenings", reviewCount:"reviews", referralCount:"referrals", followupCount:"follow-ups", imageChecksOnly:"Format and dimensions checked • clinical quality needs a person’s review", signOut:"Sign out"
@@ -41,6 +42,24 @@ const consultationLabels = { en: {
   consultations:"Consultations", consultationSubtitle:"Schedule a private video review with a clinician.", scheduleConsultation:"Schedule consultation", appointmentDateTime:"Appointment date and time", appointmentLength:"Appointment length", saveAppointment:"Save appointment", consultationPrivacyTitle:"A private room for each appointment", consultationPrivacyCopy:"Room names are random and contain no patient details. A clinician must start the call; recording controls are disabled in the meeting interface.", consultationGuestTitle:"Patient access", consultationGuestCopy:"Use the copy invitation link action to share a guest link through an approved channel. The patient waits in the Jitsi lobby until admitted.", consultationRecords:"Consultation appointments", consultationInProgress:"Consultation call", leaveCall:"Leave call", consultationNoRecord:"Recording is disabled. Do not discuss or display unrelated patient records.", jitsiConfigured:"Private Jitsi video is configured. Calls open only when a clinician chooses Join.", jitsiNotConfigured:"Video consultation is not configured. Add the private Jitsi domain and JWT credentials on the server to enable calls.", noConsultations:"No appointments scheduled yet.", joinCall:"Join call", copyPatientLink:"Copy patient link", cancelAppointment:"Cancel", invitationCopied:"Guest link copied. Share it through an approved channel.", invitationCopyError:"Could not copy the guest link on this device.", appointmentSaved:"Consultation appointment saved.", appointmentCancelled:"Appointment cancelled.", startingCall:"Connecting to private video…", appointmentStatus:"Appointment", joinCallError:"Could not start the consultation.", copyLinkError:"Could not create the patient link.", cancelConfirm:"Cancel this consultation appointment?", leaveCallConfirm:"Leave the video call?", callNotConfigured:"Video consultation is not configured.", activeCallTitle:"Consultation call", consultationStatusScheduled:"Scheduled", consultationStatusCompleted:"Completed", consultationStatusCancelled:"Cancelled"
 } };
 Object.assign(translations.en,{experimentalOnly:"No model installed"});
+Object.assign(consultationLabels.en, {
+  consultationSubtitle:"Schedule a video appointment with a clinician.",
+  consultationPrivacyTitle:"A separate room for each appointment",
+  consultationPrivacyCopy:"Room names contain no patient details. Public demo calls require the doctor to sign into Jitsi. Use synthetic cases only in public demo mode.",
+  consultationGuestCopy:"Copy the room link and open it on the second participant’s device. The doctor starts the room and manages admission through Jitsi.",
+  consultationNoRecord:"Recording controls are hidden here. End the meeting in Jitsi before marking the appointment completed. Public demo calls must use synthetic data only.",
+  startingCall:"Loading the video service…",
+  publicVideoDemo:"PUBLIC JITSI DEMO — synthetic cases only. The doctor must sign into Jitsi to start the room. Public-service terms apply. Previously shared room links remain usable outside this app.",
+  acknowledgeVideoDemo:"This call uses the public meet.jit.si service. Use synthetic cases only. The doctor must sign into Jitsi. Continue?",
+  callReady:"Video interface loaded. Start the room in Jitsi, sign in if asked, then invite the second participant.",
+  callConnected:"Connected to the meeting. Use Jitsi controls to manage participants and media.",
+  callPermissionError:"Camera or microphone could not be used. Check browser permissions and device selection; you can join muted.",
+  callNetworkError:"The video connection failed. Check the network, leave the call and retry.",
+  callScriptTimeout:"The video service did not load within 20 seconds. Check your network and retry.",
+  completeAppointment:"Mark completed", completeConfirm:"Mark this appointment completed and leave your call? Other participants must leave Jitsi separately; copied room links are not revoked.",
+  appointmentCompleted:"Appointment marked completed.", upcomingVideo:"Join opens 15 minutes before the appointment.", expiredVideo:"The appointment join window has closed.",
+  invitationReady:"Invitation link ready. Open it on another browser or device for the guest.", openJitsiRoom:"Open Jitsi room / host sign-in"
+});
 Object.assign(translations.te,{experimentalOnly:"మోడల్ ఇన్‌స్టాల్ కాలేదు"});
 const offlineLabels = { en: {
   offlinePassphrase:"Offline drafts passphrase", offlineLoginHelp:"On your first online health-worker sign-in, this creates the encrypted draft vault. Use the same passphrase to open drafts offline and unlock them for sync.", openOfflineDrafts:"Open offline drafts", offlineOnlyTitle:"Offline draft mode", offlineOnlyCopy:"Only new patient registrations can be drafted here. Existing records, reviews, follow-ups, consultations, and screening photos are unavailable offline. Sign in online and sync drafts soon; browser storage can be cleared.", offlineDraftsEyebrow:"ENCRYPTED ON THIS DEVICE", offlineDraftsTitle:"Patient registration drafts", syncDrafts:"Sync drafts now", offlineDraftSaved:"Patient registration saved as an encrypted draft on this device. It has not been sent to the server.", offlineDraftPending:"Waiting for authenticated sync", offlineNoDrafts:"No pending patient drafts.", offlineSyncSuccess:"Patient draft sync completed.", offlineSyncPartial:"Some drafts could not be synchronized. Review the messages below.", offlineSyncNetwork:"Connection was lost. Remaining drafts are still encrypted on this device.", offlineConflict:"Server rejected this draft. Review the reason before discarding it.", discardDraft:"Discard draft", confirmDiscardDraft:"Discard this unsynchronized patient draft from this device? This cannot be undone.", offlineNeedsUnlock:"Enter the offline drafts passphrase to open this vault.", offlineVaultCreated:"Encrypted offline draft vault is ready.", offlineVaultUnavailable:"Offline drafts could not be unlocked. Online sign-in is still available.", offlineOnlyWorker:"Offline draft mode is available only for a health-worker vault.", offlineRegistrationOnly:"This browser reports a connection. Sign in online to register, or reopen drafts when offline. Screening photos are not queued.", onlineOnlyScreenings:"Sync patient registrations before starting screenings. Screening photos currently require a live connection.", sessionExpiredDrafts:"Your session expired. Drafts remain encrypted; sign in again to sync.", serverUnavailableDraft:"Server unavailable. The draft remains encrypted on this device.", tooShortOfflinePassphrase:"Use an offline passphrase of at least 12 characters.", idempotencyConflict:"This operation ID is already linked to another payload.", draftSyncing:"Sending encrypted patient drafts…"
@@ -192,16 +211,18 @@ async function loadCare() { const data=await api("/api/care"); const all=[...dat
 async function loadConsultations() {
   const data=await api("/api/consultations");
   state.consultationsConfigured=Boolean(data.configured);
+  state.videoProvider=data.provider||"private";
   const notice=$("consultationStatusNotice");
   notice.classList.toggle("not-configured",!state.consultationsConfigured);
-  notice.textContent=state.consultationsConfigured?t("jitsiConfigured"):t("jitsiNotConfigured");
+  notice.textContent=state.videoProvider==="public_demo"?t("publicVideoDemo"):(state.consultationsConfigured?t("jitsiConfigured"):t("jitsiNotConfigured"));
   const records=data.consultations||[];
   $("consultationCount").textContent=String(records.length);
   if(!records.length) { $("consultationList").innerHTML=`<div class="empty-state"><p>${t("noConsultations")}</p></div>`; return; }
   $("consultationList").innerHTML=records.map(item=>{
     const statusLabel=t(`consultationStatus${item.status.charAt(0).toUpperCase()+item.status.slice(1)}`);
-    const enabled=state.consultationsConfigured&&item.status==="scheduled";
-    const actions=item.status==="scheduled"?`<div class="consultation-actions"><button class="button primary" type="button" data-join-consultation="${escapeHtml(item.id)}" ${enabled?"":"disabled"}>${t("joinCall")}</button><button class="button secondary" type="button" data-copy-consultation-link="${escapeHtml(item.id)}" ${enabled?"":"disabled"}>${t("copyPatientLink")}</button><button class="text-button danger-text" type="button" data-cancel-consultation="${escapeHtml(item.id)}">${t("cancelAppointment")}</button></div>`:"";
+    const enabled=state.consultationsConfigured&&item.can_join;
+    const windowNotice=item.access_state==="upcoming"?t("upcomingVideo"):(item.access_state==="expired"?t("expiredVideo"):"");
+    const actions=item.status==="scheduled"?`<p class="muted">${escapeHtml(windowNotice)}</p><div class="consultation-actions"><button class="button primary" type="button" data-join-consultation="${escapeHtml(item.id)}" ${enabled?"":"disabled"}>${t("joinCall")}</button><button class="button secondary" type="button" data-copy-consultation-link="${escapeHtml(item.id)}" ${enabled?"":"disabled"}>${t("copyPatientLink")}</button><button class="button secondary" type="button" data-complete-consultation="${escapeHtml(item.id)}">${t("completeAppointment")}</button><button class="text-button danger-text" type="button" data-cancel-consultation="${escapeHtml(item.id)}">${t("cancelAppointment")}</button></div>`:"";
     return `<article class="consultation-record"><div class="consultation-record-main"><div><b>${escapeHtml(item.patient_name)} <span class="id-code">${escapeHtml(item.patient_code)}</span></b><p>${dateTimeLabel(item.scheduled_at)} · ${escapeHtml(item.duration_minutes)} ${t("appointmentLength").toLowerCase()}</p></div><span class="status-pill status-${escapeHtml(item.status)}">${escapeHtml(statusLabel)}</span></div>${actions}</article>`;
   }).join("");
 }
@@ -220,20 +241,29 @@ async function loadJitsiApi(domain) {
   if(state.jitsiScriptPromise) return state.jitsiScriptPromise;
   state.jitsiScriptPromise=new Promise((resolve,reject)=>{
     const script=document.createElement("script"); script.src=`https://${domain}/external_api.js`; script.async=true;
-    script.onload=()=>window.JitsiMeetExternalAPI?resolve():reject(new Error(t("joinCallError")));
-    script.onerror=()=>reject(new Error(t("joinCallError")));
+    const timer=setTimeout(()=>{script.remove();reject(new Error(t("callScriptTimeout")));},20000);
+    script.onload=()=>{clearTimeout(timer);window.JitsiMeetExternalAPI?resolve():reject(new Error(t("joinCallError")));};
+    script.onerror=()=>{clearTimeout(timer);script.remove();reject(new Error(t("joinCallError")));};
     document.head.appendChild(script);
   });
   try { await state.jitsiScriptPromise; } catch(err) { state.jitsiScriptPromise=null; throw err; }
 }
 async function joinConsultation(id) {
+  if(state.videoProvider==="public_demo"&&!window.confirm(t("acknowledgeVideoDemo"))) return;
   closeConsultationCall();
+  const generation=state.callGeneration;
+  state.activeConsultation=id;
   const panel=$("consultationCallPanel"); panel.hidden=false;
+  $("consultationCallState").textContent=t("startingCall");
+  document.querySelectorAll("[data-join-consultation]").forEach(button=>button.disabled=true);
   $("jitsiFrame").innerHTML=`<div class="empty-state"><p>${t("startingCall")}</p></div>`;
   try {
-    const data=await api(`/api/consultations/${encodeURIComponent(id)}/join`,{method:"POST",body:"{}"});
+    const data=await api(`/api/consultations/${encodeURIComponent(id)}/join`,{method:"POST",body:JSON.stringify({acknowledge_demo:state.videoProvider==="public_demo"})});
+    if(generation!==state.callGeneration||state.page!=="consultations"||!state.user) return;
+    const externalLink=$("consultationExternalLink"); externalLink.hidden=data.provider!=="public_demo";
+    if(data.provider==="public_demo") externalLink.href=`https://${data.domain}/${encodeURIComponent(data.room_name)}`;
     await loadJitsiApi(data.domain);
-    if(state.page!=="consultations"||!state.user) { panel.hidden=true; return; }
+    if(generation!==state.callGeneration||state.page!=="consultations"||!state.user) return;
     $("jitsiFrame").replaceChildren();
     const external=new window.JitsiMeetExternalAPI(data.domain,{
       roomName:data.room_name,
@@ -241,6 +271,8 @@ async function joinConsultation(id) {
       jwt:data.jwt,
       userInfo:{displayName:"Clinician"},
       configOverwrite:{
+        startWithAudioMuted:true,
+        startWithVideoMuted:true,
         prejoinConfig:{enabled:true},
         recordings:{enabled:false,sharingEnabled:false},
         recordingService:{enabled:false,sharingEnabled:false},
@@ -252,12 +284,20 @@ async function joinConsultation(id) {
       }
     });
     state.jitsiApi=external;
-    external.addListener("videoConferenceLeft",()=>closeConsultationCall(false));
+    $("consultationCallState").textContent=t("callReady");
+    const currentEvent=(callback)=>(...args)=>{if(state.jitsiApi===external&&generation===state.callGeneration)callback(...args);};
+    external.addListener("videoConferenceJoined",currentEvent(()=>{$("consultationCallState").textContent=t("callConnected");}));
+    for(const event of ["cameraError","micError"]) external.addListener(event,currentEvent(()=>{$("consultationCallState").textContent=t("callPermissionError");}));
+    for(const event of ["errorOccurred","peerConnectionFailure"]) external.addListener(event,currentEvent(()=>{$("consultationCallState").textContent=t("callNetworkError");}));
+    external.addListener("videoConferenceLeft",currentEvent(()=>closeConsultationCall(false)));
   } catch(err) {
-    panel.hidden=true; $("jitsiFrame").replaceChildren(); showToast(err.message||t("joinCallError"));
+    if(generation===state.callGeneration) { panel.hidden=false; $("jitsiFrame").replaceChildren(); $("consultationCallState").textContent=err.message||t("joinCallError"); showToast(err.message||t("joinCallError")); }
+  } finally {
+    if(state.page==="consultations"&&state.user) loadConsultations().catch(()=>{});
   }
 }
 function closeConsultationCall(leave=true) {
+  state.callGeneration++; state.activeConsultation=null;
   const external=state.jitsiApi; state.jitsiApi=null;
   if(external) {
     if(leave) { try { external.executeCommand("hangup"); } catch {} }
@@ -265,17 +305,26 @@ function closeConsultationCall(leave=true) {
   }
   const panel=$("consultationCallPanel"); if(panel) panel.hidden=true;
   const frame=$("jitsiFrame"); if(frame) frame.replaceChildren();
+  const externalLink=$("consultationExternalLink"); if(externalLink) {externalLink.hidden=true;externalLink.removeAttribute("href");}
 }
 async function copyConsultationLink(id) {
+  if(state.videoProvider==="public_demo"&&!window.confirm(t("acknowledgeVideoDemo"))) return;
   try {
-    const data=await api(`/api/consultations/${encodeURIComponent(id)}/invite`,{method:"POST",body:"{}"});
-    await navigator.clipboard.writeText(data.guest_url); showToast(t("invitationCopied"));
+    const data=await api(`/api/consultations/${encodeURIComponent(id)}/invite`,{method:"POST",body:JSON.stringify({acknowledge_demo:state.videoProvider==="public_demo"})});
+    $("consultationInvitePanel").hidden=false; $("consultationInviteLink").value=data.guest_url;
+    try {await navigator.clipboard.writeText(data.guest_url);showToast(t("invitationCopied"));}
+    catch {showToast(t("invitationReady"));}
   } catch(err) { showToast(err.message||t("invitationCopyError")); }
 }
 async function cancelConsultation(id) {
   if(!window.confirm(t("cancelConfirm"))) return;
-  try { await api(`/api/consultations/${encodeURIComponent(id)}/cancel`,{method:"POST",body:"{}"}); showToast(t("appointmentCancelled")); await loadConsultations(); }
+  try { await api(`/api/consultations/${encodeURIComponent(id)}/cancel`,{method:"POST",body:"{}"}); if(state.activeConsultation===id) closeConsultationCall(); $("consultationInvitePanel").hidden=true; showToast(t("appointmentCancelled")); await loadConsultations(); }
   catch(err) { showToast(err.message); }
+}
+async function completeConsultation(id) {
+  if(!window.confirm(t("completeConfirm"))) return;
+  try {await api(`/api/consultations/${encodeURIComponent(id)}/complete`,{method:"POST",body:"{}"});if(state.activeConsultation===id)closeConsultationCall();$("consultationInvitePanel").hidden=true;showToast(t("appointmentCompleted"));await loadConsultations();}
+  catch(err) {showToast(err.message);}
 }
 async function loadAudit() { if(state.user?.role!=="admin") return; const data=await api("/api/audit"); const records=data.records||[]; $("auditEmpty").hidden=records.length>0; $("auditBody").innerHTML=records.map(r=>`<tr><td>${escapeHtml(r.actor_name)}</td><td>${escapeHtml(r.action)}</td><td>${escapeHtml(r.entity_type)}</td><td><span class="id-code">${escapeHtml(r.entity_id)}</span></td><td>${escapeHtml(dateTimeLabel(r.created_at))}</td></tr>`).join(""); }
 async function openPatientRecord(id) {
@@ -367,7 +416,7 @@ async function boot() {
   $("consultationForm").addEventListener("submit",createConsultation); $("closeConsultationCall").addEventListener("click",()=>closeConsultationCall()); const localNow=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16); $("consultationTime").min=localNow;
   $("newPatientButton").addEventListener("click",openPatientDialog); $("emptyRegisterButton").addEventListener("click",openPatientDialog); $("closePatientDialog").addEventListener("click",()=>$("patientDialog").close()); $("cancelPatient").addEventListener("click",()=>$("patientDialog").close()); $("oralImage").addEventListener("change",e=>qualityCheck(e.target.files[0])); $("patientSearch").addEventListener("input",renderPatients); $("languageButton").addEventListener("click",()=>{state.language=state.language==="en"?"te":"en";localStorage.setItem("adLanguage",state.language);translate(); if(state.user) goPage(state.page);});
   document.querySelectorAll("[data-page]").forEach(el=>el.addEventListener("click",()=>goPage(el.dataset.page))); document.querySelectorAll("[data-go]").forEach(el=>el.addEventListener("click",()=>{goPage(el.dataset.go);if(el.dataset.go==="patients")openPatientDialog();})); $("menuButton").addEventListener("click",()=>$("sidebar").classList.toggle("open")); $("closePatientRecord").addEventListener("click",()=>$("patientRecordDialog").close()); document.addEventListener("click",e=>{const button=e.target.closest("[data-open-patient]");if(button)openPatientRecord(button.dataset.openPatient);})
-  document.addEventListener("click",e=>{const join=e.target.closest("[data-join-consultation]");const invite=e.target.closest("[data-copy-consultation-link]");const cancel=e.target.closest("[data-cancel-consultation]");const discard=e.target.closest("[data-discard-offline-draft]");if(join)joinConsultation(join.dataset.joinConsultation);else if(invite)copyConsultationLink(invite.dataset.copyConsultationLink);else if(cancel)cancelConsultation(cancel.dataset.cancelConsultation);else if(discard)discardOfflineDraft(discard.dataset.discardOfflineDraft);});
+  document.addEventListener("click",e=>{const join=e.target.closest("[data-join-consultation]");const invite=e.target.closest("[data-copy-consultation-link]");const cancel=e.target.closest("[data-cancel-consultation]");const complete=e.target.closest("[data-complete-consultation]");const discard=e.target.closest("[data-discard-offline-draft]");if(join)joinConsultation(join.dataset.joinConsultation);else if(invite)copyConsultationLink(invite.dataset.copyConsultationLink);else if(cancel)cancelConsultation(cancel.dataset.cancelConsultation);else if(complete)completeConsultation(complete.dataset.completeConsultation);else if(discard)discardOfflineDraft(discard.dataset.discardOfflineDraft);});
   $("logoutButton").addEventListener("click",async()=>{closeConsultationCall();if(state.offlineMode){showLogin();return;}try{await api("/api/logout",{method:"POST",body:"{}"});}finally{showLogin();}});
   try {const session=await api("/api/session");if(session.authenticated)showApp(session.user);else showLogin();}catch{showLogin();$("loginError").textContent=t("serverUnavailable");}
   if("serviceWorker" in navigator) navigator.serviceWorker.register("/service-worker.js").catch(()=>{});
