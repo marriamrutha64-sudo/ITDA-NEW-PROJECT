@@ -19,6 +19,7 @@ import struct
 import time
 import unicodedata
 import uuid
+import medgemma_runtime
 from getpass import getpass
 from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
@@ -386,7 +387,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"authenticated": bool(user), "user": user})
                 return
             if path == "/api/health":
-                self.json({"ok": True, "ai": {"available": False, "reason": "No validated model is installed."}})
+                self.json({"ok": True, "ai": medgemma_runtime.status()})
                 return
             if path == "/api/consultations":
                 user = self.require_user({"medical_officer", "specialist"})
@@ -474,7 +475,7 @@ class Handler(BaseHTTPRequestHandler):
                     data = file_path.read_bytes()
                     self.send_headers(200, row["image_type"], len(data)); self.send_header("Content-Disposition", "inline; filename=screening-image"); self.end_headers(); self.wfile.write(data); return
             self.json({"error": "Not found."}, 404); return
-        if path == "/" or path in ("/index.html", "/app.js", "/styles.css", "/offline-vault.js", "/manifest.json", "/service-worker.js", "/icon.svg"):
+        if path == "/" or path in ("/index.html", "/app.js", "/medgemma-ui.js", "/styles.css", "/offline-vault.js", "/manifest.json", "/service-worker.js", "/icon.svg"):
             name = "index.html" if path == "/" else path.lstrip("/")
             file_path = (ROOT / name).resolve()
             if file_path.parent != ROOT or not file_path.exists():
@@ -757,7 +758,27 @@ class Handler(BaseHTTPRequestHandler):
                     db.execute("INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)",(user["id"],"created",kind,eid,created))
                 self.json({kind:dict(row)},201); return
             if path == "/api/ai/analyze":
-                self.json({"error":"AI analysis is unavailable: no trained, validated model is installed. No prediction was made."},503); return
+                if not medgemma_runtime.status()["available"]:
+                    self.json({"error":"AI analysis is unavailable: no trained, validated model is installed. No prediction was made."},503); return
+                user = self.require_user({"medical_officer", "specialist"})
+                if not user: return
+                data = self.body()
+                if data.get("acknowledge_experimental") is not True:
+                    raise ValueError("Acknowledge that the generated output is experimental and unvalidated.")
+                sid = clean(data, "screening_id", 40, required=True)
+                with connect() as db:
+                    row = db.execute("SELECT image_name FROM screenings WHERE id=?", (sid,)).fetchone()
+                if not row:
+                    self.json({"error": "Screening not found."}, 404); return
+                image_path = (UPLOAD_DIR / row["image_name"]).resolve()
+                if image_path.parent != UPLOAD_DIR or not image_path.is_file():
+                    self.json({"error": "Screening image unavailable."}, 404); return
+                try:
+                    result = medgemma_runtime.analyze(image_path)
+                except medgemma_runtime.InferenceUnavailable as exc:
+                    self.json({"error": str(exc)}, 503); return
+                self.audit(user, "generated_experimental_observations", "screening", sid)
+                self.json(result); return
             self.json({"error":"Not found."},404)
         except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
             self.json({"error":str(exc)},400)

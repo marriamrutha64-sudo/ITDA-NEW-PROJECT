@@ -1,0 +1,7 @@
+# Install in a separate Python 3.12 environment; the web app remains stdlib-only.
+torch>=2.6,<3
+transformers>=4.50,<5
+accelerate>=1.0,<2
+Pillow>=11,<13
+safetensors>=0.5,<1
+huggingface-hub>=0.30,<1

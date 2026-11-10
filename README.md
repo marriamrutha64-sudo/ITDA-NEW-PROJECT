@@ -1,5 +1,7 @@
 # Aarogya Drishti
 
+MedGemma 1.5 4B local inference integration and setup: [MEDGEMMA_SETUP.md](MEDGEMMA_SETUP.md). The optional integration requires separately downloaded gated weights and a compatible inference environment. Generated observations remain unvalidated for oral screening; no real model run has been completed in this workspace.
+
 A mobile-first, installable web prototype for a community oral-health screening and care-coordination workflow. It uses only Python's standard library and browser APIs; no paid service or external runtime package is required.
 
 ## Current scope
