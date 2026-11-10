@@ -17,6 +17,8 @@ A mobile-first, installable web prototype for a community oral-health screening 
 
 ## Run locally on Windows
 
+For the existing QA presentation workspace, run `python open_demo.py`. It reuses a running public-video demo on port 8001 or starts it locally, then opens the browser. Existing `qa-admin`, `qa-doctor`, and `qa-worker` accounts keep their chosen passwords. This is a local presentation link; other people cannot open your localhost address from their devices.
+
 Open PowerShell in this folder. Use Python 3.10 or newer.
 
 ```powershell
