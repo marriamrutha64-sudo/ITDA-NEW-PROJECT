@@ -18,9 +18,10 @@ ROOT = Path(__file__).resolve().parent
 def ready(url):
     try:
         with urllib.request.urlopen(url + "/api/health", timeout=2) as response:
-            return (json.load(response).get("ok") is True
-                    and "AarogyaLocal/" in response.headers.get("Server", "")
-                    and "https://meet.jit.si" in response.headers.get("Content-Security-Policy", ""))
+            payload = json.load(response)
+            return (payload.get("ok") is True
+                    and payload.get("video_provider") == "jitsi"
+                    and "AarogyaLocal/" in response.headers.get("Server", ""))
     except (OSError, ValueError, urllib.error.URLError):
         return False
 
@@ -45,7 +46,6 @@ def main():
         if not interpreter.is_file():
             interpreter = Path(sys.executable)
         environment = dict(os.environ,
-                           AAROGYA_VIDEO_PROVIDER="public_demo",
                            AAROGYA_DATA_DIR=str(ROOT / ".private-data" / "manual-qa"),
                            AAROGYA_SESSION_SECRET=secrets.token_urlsafe(48))
         with (logs / f"demo-{args.port}.log").open("ab") as output, (logs / f"demo-{args.port}-errors.log").open("ab") as errors:
@@ -63,7 +63,7 @@ def main():
             time.sleep(0.25)
     print(f"Demo ready: {url}")
     print("Use qa-admin, qa-doctor or qa-worker with the password you chose.")
-    print("Synthetic data only. The doctor signs into public Jitsi separately for video.")
+    print("Synthetic data only. Start the Jitsi room in its own tab; the host signs in there.")
     print("This localhost address works on this computer; it is not a public application link.")
     if not args.no_browser:
         webbrowser.open(url, new=2)

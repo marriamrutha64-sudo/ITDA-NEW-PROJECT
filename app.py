@@ -6,7 +6,6 @@ the public internet without a production deployment and security review.
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import hmac
 import json
@@ -22,8 +21,10 @@ import uuid
 import sys
 import clinical_records
 import ai_jobs
+import health_assistant
 import offline_screenings
 import medgemma_runtime
+import role_visibility
 from auth_limits import LoginThrottle
 from getpass import getpass
 from datetime import date, datetime, timedelta, timezone
@@ -152,6 +153,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS consultations(
           id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patients(id),
           room_name TEXT UNIQUE NOT NULL, scheduled_at TEXT NOT NULL,
+          meeting_url TEXT NOT NULL DEFAULT '',
+          video_provider TEXT NOT NULL DEFAULT 'jitsi',
           duration_minutes INTEGER NOT NULL CHECK(duration_minutes IN (15,30,45,60)),
           status TEXT NOT NULL DEFAULT 'scheduled' CHECK(status IN ('scheduled','completed','cancelled')),
           created_by TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL
@@ -162,6 +165,7 @@ def init_db():
           action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL,
           created_at TEXT NOT NULL
         );
+        CREATE INDEX IF NOT EXISTS audit_entity_action ON audit_log(entity_type,entity_id,action,id);
         CREATE TABLE IF NOT EXISTS offline_sync_receipts(
           actor_id TEXT NOT NULL REFERENCES users(id), operation_id TEXT NOT NULL,
           payload_hash TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL,
@@ -170,6 +174,14 @@ def init_db():
         """)
         db.execute("BEGIN IMMEDIATE")
         migrate_patient_identity_key(db)
+        consultation_columns = {row["name"] for row in db.execute("PRAGMA table_info(consultations)")}
+        if "meeting_url" not in consultation_columns:
+            db.execute("ALTER TABLE consultations ADD COLUMN meeting_url TEXT NOT NULL DEFAULT ''")
+        if "video_provider" not in consultation_columns:
+            db.execute("ALTER TABLE consultations ADD COLUMN video_provider TEXT NOT NULL DEFAULT 'jitsi'")
+            # A stored Meet link belongs to the old workflow. Never silently
+            # redirect that appointment to a different public room.
+            db.execute("UPDATE consultations SET video_provider='google_meet' WHERE meeting_url<>''")
         clinical_records.init_schema(db)
         offline_screenings.ensure_schema(db)
         ai_jobs.init_schema(db)
@@ -177,6 +189,13 @@ def init_db():
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def duplicate_patient_error(db, user, duplicate):
+    if role_visibility.can_view_patient(db, user, duplicate["id"]):
+        return {"error": "A record with this name, age, village and mobile number already exists.",
+                "duplicate": duplicate["patient_code"]}
+    return {"error": "This registration could not be completed. Ask an administrator to review a possible duplicate."}
 
 
 def pw_hash(password: str, salt: bytes | None = None) -> str:
@@ -204,66 +223,6 @@ def session_secret():
     return secret.encode("utf-8")
 
 
-def jitsi_settings():
-    """Return configured private Jitsi connection settings, never a public default."""
-    domain = os.environ.get("AAROGYA_JITSI_DOMAIN", "").strip().lower()
-    app_id = os.environ.get("AAROGYA_JITSI_APP_ID", "").strip()
-    app_secret = os.environ.get("AAROGYA_JITSI_APP_SECRET", "")
-    labels = domain.split(".")
-    valid_domain = (
-        2 <= len(labels) <= 10 and len(domain) <= 253
-        and all(1 <= len(label) <= 63 and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) for label in labels)
-    )
-    if not valid_domain or not app_id or len(app_id) > 128 or len(app_secret) < 32:
-        return None
-    return {"domain": domain, "app_id": app_id, "app_secret": app_secret}
-
-
-PUBLIC_VIDEO_DEMO_NOTICE = (
-    "Public Jitsi demonstration: use synthetic data only. "
-    "The public service may require the meeting host to sign in. "
-    "Do not discuss real patient information."
-)
-
-
-def video_settings():
-    """Public demo is a separate explicit opt-in; private Jitsi stays the default."""
-    provider = os.environ.get("AAROGYA_VIDEO_PROVIDER", "private").strip().lower()
-    if provider == "public_demo":
-        return {"provider": "public_demo", "domain": "meet.jit.si", "notice": PUBLIC_VIDEO_DEMO_NOTICE}
-    if provider != "private":
-        return None
-    settings = jitsi_settings()
-    if not settings or settings["domain"] == "meet.jit.si":
-        return None
-    return {**settings, "provider": "private", "notice": "Private Jitsi video is configured."}
-
-
-def b64url(data):
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
-
-
-def make_jitsi_token(settings, room_name):
-    """Create a short-lived HS256 token scoped to exactly one opaque room."""
-    now = int(time.time())
-    header = {"alg": "HS256", "typ": "JWT"}
-    claims = {
-        "aud": settings["app_id"],
-        "iss": settings["app_id"],
-        "sub": settings["domain"],
-        "room": room_name,
-        "iat": now,
-        "nbf": now - 10,
-        "exp": now + 10 * 60,
-        "context": {"user": {"name": "Clinician"}},
-    }
-    header_part = b64url(json.dumps(header, separators=(",", ":")).encode())
-    claims_part = b64url(json.dumps(claims, separators=(",", ":")).encode())
-    unsigned = f"{header_part}.{claims_part}"
-    signature = hmac.new(settings["app_secret"].encode("utf-8"), unsigned.encode("ascii"), hashlib.sha256).digest()
-    return f"{unsigned}.{b64url(signature)}", now + 10 * 60
-
-
 def parse_appointment_time(value):
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
@@ -278,6 +237,41 @@ def parse_appointment_time(value):
     if parsed > now + timedelta(days=365):
         raise ValueError("Appointment time must be within the next year.")
     return parsed.isoformat(timespec="minutes")
+
+
+EXAMPLE_MEETING_URL = "https://meet.google.com/abc-defg-hij"
+JITSI_BASE_URL = "https://meet.jit.si"
+PUBLIC_VIDEO_DEMO_NOTICE = (
+    "Public Jitsi demonstration: use synthetic data only. "
+    "The public service may ask the meeting host to sign in. "
+    "Allow microphone and camera in the Jitsi tab."
+)
+
+
+def jitsi_room_url(room_name):
+    """Build only opaque, app-created Jitsi room URLs."""
+    if not re.fullmatch(r"[0-9a-f]{48}", str(room_name or "")):
+        raise ValueError("This appointment has no valid Jitsi room.")
+    return f"{JITSI_BASE_URL}/{room_name}"
+
+
+def is_example_meeting_url(value):
+    return str(value or "").rstrip("/") == EXAMPLE_MEETING_URL
+
+
+def validate_meeting_url(value):
+    """Allow only a standard Google Meet code URL, without redirects or extras."""
+    if not isinstance(value, str) or len(value) > 80 or value != value.strip():
+        raise ValueError("Create a meeting in Google Meet and paste the link it gives you.")
+    parsed = urlparse(value)
+    if (parsed.scheme != "https" or parsed.netloc != "meet.google.com"
+            or parsed.params or parsed.query or parsed.fragment
+            or not re.fullmatch(r"/[a-z]{3}-[a-z]{4}-[a-z]{3}/?", parsed.path)):
+        raise ValueError("Create a meeting in Google Meet and paste the link it gives you.")
+    normalized = value.rstrip("/")
+    if is_example_meeting_url(normalized):
+        raise ValueError("Create a real meeting in Google Meet and paste its copied link. The example address is not a meeting.")
+    return normalized
 
 
 def consultation_access_window(consultation):
@@ -373,11 +367,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Frame-Options", "DENY")
-        jitsi = video_settings()
-        jitsi_origin = f"https://{jitsi['domain']}" if jitsi else ""
-        script_sources = "'self'" + (f" {jitsi_origin}" if jitsi else "")
-        frame_sources = jitsi_origin or "'none'"
-        self.send_header("Content-Security-Policy", f"default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src {script_sources}; connect-src 'self'; frame-src {frame_sources}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
         self.send_header("Cache-Control", "no-store" if self.path.startswith("/api/") else "no-cache")
         if length is not None:
             self.send_header("Content-Length", str(length))
@@ -481,29 +471,42 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/health":
                 ai = medgemma_runtime.status()
                 ai["busy"] = ai.get("busy", False) or ai_jobs.is_busy()
-                self.json({"ok": True, "service": "aarogya-drishti", "ai": ai})
+                self.json({"ok": True, "service": "aarogya-drishti", "video_provider": "jitsi", "ai": ai})
                 return
             if path == "/api/consultations":
                 user = self.require_user({"medical_officer", "specialist"})
                 if not user: return
-                settings = video_settings()
                 with connect() as db:
+                    scope, scope_args = role_visibility.patient_scope(user)
                     rows = db.execute(
-                        "SELECT c.id,c.scheduled_at,c.duration_minutes,c.status,c.created_at,"
-                        "p.name AS patient_name,p.patient_code "
+                        "SELECT c.id,c.room_name,c.scheduled_at,c.duration_minutes,c.status,c.created_at,c.meeting_url,c.video_provider,"
+                        "p.id AS patient_id,p.name AS patient_name,p.patient_code,"
+                        "done.created_at AS completed_at,clinician.display_name AS completed_by_name "
                         "FROM consultations c JOIN patients p ON p.id=c.patient_id "
-                        "ORDER BY c.scheduled_at DESC LIMIT 200"
+                        "LEFT JOIN audit_log done ON done.id=(SELECT MAX(a.id) FROM audit_log a "
+                        "WHERE a.entity_type='consultation' AND a.entity_id=c.id AND a.action='completed') "
+                        "LEFT JOIN users clinician ON clinician.id=done.actor_id "
+                        f"WHERE {scope} ORDER BY c.scheduled_at DESC LIMIT 200",
+                        scope_args,
                     ).fetchall()
                 consultations = []
                 for row in rows:
                     item = dict(row)
+                    if is_example_meeting_url(item["meeting_url"]):
+                        # Older records may have saved the sample address. Treat it
+                        # as missing so the clinician can replace it safely.
+                        item["meeting_url"] = ""
                     item.update(consultation_access_window(item))
-                    item["can_join"] = bool(settings) and item["join_window_open"]
+                    # Only Jitsi appointments can be opened from this workflow.
+                    # Old Meet appointments remain visible for their care history.
+                    item["can_join"] = (item["video_provider"] == "jitsi" and item["status"] == "scheduled"
+                                        and bool(re.fullmatch(r"[0-9a-f]{48}", item["room_name"])))
+                    item.pop("room_name")
                     consultations.append(item)
                 self.json({
-                    "configured": bool(settings),
-                    "provider": settings["provider"] if settings else "private",
-                    "notice": settings["notice"] if settings else "Video consultation is not configured.",
+                    "configured": True,
+                    "provider": "jitsi",
+                    "notice": PUBLIC_VIDEO_DEMO_NOTICE,
                     "consultations": consultations,
                 })
                 return
@@ -513,19 +516,18 @@ class Handler(BaseHTTPRequestHandler):
             if clinical_records.handle_get(self, user, path, sys.modules[__name__]): return
             with connect() as db:
                 if path == "/api/dashboard":
-                    scope = "WHERE created_by=?" if user["role"] == "health_worker" else ""
-                    args = (user["id"],) if scope else ()
-                    patients = db.execute(f"SELECT COUNT(*) FROM patients {scope}", args).fetchone()[0]
-                    screening_scope = "AND created_by=?" if user["role"] == "health_worker" else ""
-                    screening_args = (user["id"],) if screening_scope else ()
-                    pending = db.execute("SELECT COUNT(*) FROM screenings WHERE status='Awaiting clinical review' " + screening_scope, screening_args).fetchone()[0]
-                    due_scope = "AND p.created_by=?" if user["role"] == "health_worker" else ""
-                    due_args = (date.today().isoformat(), date.fromordinal(date.today().toordinal()+7).isoformat()) + ((user["id"],) if due_scope else ())
-                    due = db.execute("SELECT COUNT(*) FROM followups f JOIN patients p ON p.id=f.patient_id WHERE f.status='Scheduled' AND f.due_date BETWEEN ? AND ? " + due_scope, due_args).fetchone()[0]
-                    referral_scope = "AND p.created_by=?" if user["role"] == "health_worker" else ""
-                    referral_args = (user["id"],) if referral_scope else ()
-                    referrals = db.execute("SELECT COUNT(*) FROM referrals r JOIN patients p ON p.id=r.patient_id WHERE r.status='Open' " + referral_scope, referral_args).fetchone()[0]
-                    recent = db.execute("SELECT id,patient_code,name,age,gender,village,district,created_at FROM patients " + scope + " ORDER BY created_at DESC LIMIT 6", args).fetchall()
+                    scope, args = role_visibility.patient_scope(user)
+                    patients = db.execute(f"SELECT COUNT(*) FROM patients p WHERE {scope}", args).fetchone()[0]
+                    pending = db.execute(
+                        "SELECT COUNT(*) FROM screenings s JOIN patients p ON p.id=s.patient_id "
+                        f"WHERE s.status='Awaiting clinical review' AND {scope}", args).fetchone()[0]
+                    due_args = (date.today().isoformat(), date.fromordinal(date.today().toordinal()+7).isoformat(), *args)
+                    due = db.execute("SELECT COUNT(*) FROM followups f JOIN patients p ON p.id=f.patient_id "
+                                     f"WHERE f.status='Scheduled' AND f.due_date BETWEEN ? AND ? AND {scope}", due_args).fetchone()[0]
+                    referrals = db.execute("SELECT COUNT(*) FROM referrals r JOIN patients p ON p.id=r.patient_id "
+                                           f"WHERE r.status='Open' AND {scope}", args).fetchone()[0]
+                    recent = db.execute("SELECT p.id,p.patient_code,p.name,p.age,p.gender,p.village,p.district,p.created_at "
+                                        f"FROM patients p WHERE {scope} ORDER BY p.created_at DESC LIMIT 6", args).fetchall()
                     self.json({"patients": patients, "screenings": pending, "followups": due, "referrals": referrals, "recent": [dict(row) for row in recent]})
                     return
                 if path == "/api/audit":
@@ -538,16 +540,19 @@ class Handler(BaseHTTPRequestHandler):
                     ).fetchall()
                     self.json({"records": [dict(row) for row in rows]}); return
                 if path == "/api/patients":
-                    scope = "WHERE created_by=?" if user["role"] == "health_worker" else ""
-                    args = (user["id"],) if scope else ()
-                    rows = db.execute("SELECT id,patient_code,name,age,gender,village,district,consent,created_at FROM patients " + scope + " ORDER BY created_at DESC LIMIT 500", args).fetchall()
+                    scope, args = role_visibility.patient_scope(user)
+                    rows = db.execute(
+                        "SELECT p.id,p.patient_code,p.name,p.age,p.gender,p.village,p.district,p.consent,p.created_at,"
+                        "u.display_name AS creator_name,u.role AS creator_role "
+                        f"FROM patients p JOIN users u ON u.id=p.created_by WHERE {scope} "
+                        "ORDER BY p.created_at DESC LIMIT 500", args).fetchall()
                     self.json({"patients": [dict(row) for row in rows]}); return
                 if path.startswith("/api/patients/"):
                     patient_id = path.rsplit("/", 1)[-1]
                     if not patient_id or len(patient_id) > 40:
                         self.json({"error": "Patient not found."}, 404); return
                     row = db.execute("SELECT * FROM patients WHERE id=?", (patient_id,)).fetchone()
-                    if not row or (user["role"] == "health_worker" and row["created_by"] != user["id"]):
+                    if not row or not role_visibility.can_view_patient(db, user, patient_id):
                         self.json({"error": "Patient not found or you do not have access."}, 404); return
                     screenings = db.execute("SELECT id,location,duration,notes,image_type,image_bytes,image_width,image_height,status,created_at FROM screenings WHERE patient_id=? ORDER BY created_at DESC", (patient_id,)).fetchall()
                     reviews = db.execute("SELECT reviewer,status,observations,created_at FROM reviews WHERE patient_id=? ORDER BY created_at DESC", (patient_id,)).fetchall()
@@ -556,25 +561,36 @@ class Handler(BaseHTTPRequestHandler):
                     db.execute("INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)", (user["id"], "viewed", "patient", patient_id, now_iso()))
                     self.json({"patient": dict(row), "screenings": [dict(item) for item in screenings], "reviews": [dict(item) for item in reviews], "referrals": [dict(item) for item in referrals], "followups": [dict(item) for item in followups]}); return
                 if path == "/api/screenings":
-                    screen_scope = "WHERE s.created_by=?" if user["role"] == "health_worker" else ""
-                    screen_args = (user["id"],) if screen_scope else ()
-                    rows = db.execute("SELECT s.*,p.patient_code,p.name patient_name FROM screenings s JOIN patients p ON p.id=s.patient_id " + screen_scope + " ORDER BY s.created_at DESC LIMIT 100", screen_args).fetchall()
+                    scope, args = role_visibility.patient_scope(user)
+                    rows = db.execute("SELECT s.*,p.patient_code,p.name patient_name,u.display_name AS creator_name "
+                                      "FROM screenings s JOIN patients p ON p.id=s.patient_id "
+                                      f"JOIN users u ON u.id=s.created_by WHERE {scope} "
+                                      "ORDER BY s.created_at DESC LIMIT 100", args).fetchall()
                     self.json({"screenings": [dict(row) for row in rows]}); return
                 if path == "/api/reviews":
                     if user["role"] not in {"admin", "medical_officer", "specialist"}:
                         self.json({"error": "Clinical reviewer access is required."}, 403); return
-                    rows = db.execute("SELECT r.*,p.patient_code,p.name patient_name FROM reviews r JOIN patients p ON p.id=r.patient_id ORDER BY r.created_at DESC LIMIT 100").fetchall()
+                    scope, args = role_visibility.patient_scope(user)
+                    rows = db.execute("SELECT r.*,p.patient_code,p.name patient_name FROM reviews r "
+                                      f"JOIN patients p ON p.id=r.patient_id WHERE {scope} "
+                                      "ORDER BY r.created_at DESC LIMIT 100", args).fetchall()
                     self.json({"reviews": [dict(row) for row in rows]}); return
                 if path == "/api/care":
-                    care_scope = "WHERE p.created_by=?" if user["role"] == "health_worker" else ""
-                    care_args = (user["id"],) if care_scope else ()
-                    refs = db.execute("SELECT r.*,p.patient_code,p.name patient_name FROM referrals r JOIN patients p ON p.id=r.patient_id " + care_scope + " ORDER BY r.created_at DESC LIMIT 100", care_args).fetchall()
-                    follows = db.execute("SELECT f.*,p.patient_code,p.name patient_name FROM followups f JOIN patients p ON p.id=f.patient_id " + care_scope + " ORDER BY f.due_date LIMIT 100", care_args).fetchall()
+                    scope, args = role_visibility.patient_scope(user)
+                    refs = db.execute("SELECT r.*,p.patient_code,p.name patient_name FROM referrals r "
+                                      f"JOIN patients p ON p.id=r.patient_id WHERE {scope} "
+                                      "ORDER BY r.created_at DESC LIMIT 100", args).fetchall()
+                    follows = db.execute("SELECT f.*,p.patient_code,p.name patient_name FROM followups f "
+                                         f"JOIN patients p ON p.id=f.patient_id WHERE {scope} "
+                                         "ORDER BY f.due_date LIMIT 100", args).fetchall()
                     self.json({"referrals": [dict(row) for row in refs], "followups": [dict(row) for row in follows]}); return
                 if path.startswith("/api/images/"):
                     image_id = path.rsplit("/", 1)[-1]
-                    row = db.execute("SELECT s.image_name,s.image_type,s.created_by AS screening_owner,p.created_by AS patient_owner FROM screenings s JOIN patients p ON p.id=s.patient_id WHERE s.id=?", (image_id,)).fetchone()
-                    if not row or (user["role"] == "health_worker" and user["id"] not in (row["screening_owner"], row["patient_owner"])):
+                    scope, args = role_visibility.patient_scope(user)
+                    row = db.execute("SELECT s.image_name,s.image_type FROM screenings s "
+                                     f"JOIN patients p ON p.id=s.patient_id WHERE s.id=? AND {scope}",
+                                     (image_id, *args)).fetchone()
+                    if not row:
                         self.json({"error": "Image not found."}, 404); return
                     file_path = (UPLOAD_DIR / row["image_name"]).resolve()
                     if file_path.parent != UPLOAD_DIR or not file_path.exists():
@@ -582,9 +598,13 @@ class Handler(BaseHTTPRequestHandler):
                     data = file_path.read_bytes()
                     self.send_headers(200, row["image_type"], len(data)); self.send_header("Content-Disposition", "inline; filename=screening-image"); self.end_headers(); self.wfile.write(data); return
             self.json({"error": "Not found."}, 404); return
-        public_files = {"/", "/index.html", "/app.js", "/medgemma-ui.js", "/styles.css", "/offline-vault.js", "/manifest.json", "/service-worker.js", "/icon.svg", "/gallery.js", "/reference-labels.js", "/call-diagnostics.js", "/care-records.js", "/offline-screening.js", "/offline-capture-ui.js", "/patient-call.html", "/patient-call.js"}
+        public_files = {"/", "/index.html", "/app.js", "/mic-preflight.js", "/medgemma-ui.js", "/health-assistant.js", "/styles.css", "/offline-vault.js", "/manifest.json", "/service-worker.js", "/icon.svg", "/gallery.js", "/reference-labels.js", "/care-records.js", "/offline-screening.js", "/offline-capture-ui.js", "/patient-call.html", "/patient-call.js"}
         reference_files = {"/assets/reference/" + name for name in ("gums-reference.jpg", "ulcer-reference-poster.jpg", "tongue-reference.jpg", "examination-reference.jpg", "clinic-reference.jpg", "outreach-reference.jpg", "palate-reference.jpg")}
-        if path in public_files | reference_files:
+        illustration_files = {"/assets/illustrations/" + name for name in (
+            "teleconsultation-india.png", "care-journey-india.png", "privacy-stewardship-india.png",
+            "overview-community-india.png", "overview-clinic-india.png", "patient-registration-india.png",
+            "oral-screening-setup-india.png", "clinician-review-india.png", "visual-reference-india.png")}
+        if path in public_files | reference_files | illustration_files:
             name = "index.html" if path == "/" else path.lstrip("/")
             file_path = (ROOT / name).resolve()
             if not file_path.is_relative_to(ROOT) or not file_path.is_file():
@@ -627,6 +647,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.json({"ok": True}, extra_headers={"Set-Cookie": f"{COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"}); return
             user = self.require_user()
             if not user: return
+            if health_assistant.handle_post(self, user, path, sys.modules[__name__]): return
             if ai_jobs.handle_post(self, user, path, sys.modules[__name__]): return
             if offline_screenings.handle_post(self, user, path, sys.modules[__name__]): return
             if clinical_records.handle_post(self, user, path, sys.modules[__name__]): return
@@ -670,14 +691,11 @@ class Handler(BaseHTTPRequestHandler):
                             response_body = json.loads(receipt["response_json"])
                     else:
                         duplicate = db.execute(
-                            "SELECT patient_code FROM patients WHERE identity_key=? LIMIT 1", (identity_key,)
+                            "SELECT id,patient_code FROM patients WHERE identity_key=? LIMIT 1", (identity_key,)
                         ).fetchone()
                         if duplicate:
                             response_status = 409
-                            response_body = {
-                                "error": "A record with this name, age, village and mobile number already exists.",
-                                "duplicate": duplicate["patient_code"],
-                            }
+                            response_body = duplicate_patient_error(db, user, duplicate)
                         else:
                             patient_id = str(uuid.uuid4())
                             patient_code = f"AD-{date.today().year}-{secrets.token_hex(3).upper()}"
@@ -716,6 +734,8 @@ class Handler(BaseHTTPRequestHandler):
                 data = self.body()
                 patient_id = clean(data, "patient_id", 40, required=True)
                 scheduled_at = parse_appointment_time(data.get("scheduled_at", ""))
+                if data.get("meeting_url"):
+                    raise ValueError("Jitsi creates a unique room link for each appointment. Do not paste a meeting link.")
                 try:
                     duration = int(data.get("duration_minutes", 30))
                 except (TypeError, ValueError) as exc:
@@ -723,24 +743,35 @@ class Handler(BaseHTTPRequestHandler):
                 if duration not in {15, 30, 45, 60}:
                     raise ValueError("Appointment length must be 15, 30, 45 or 60 minutes.")
                 consultation_id = str(uuid.uuid4())
-                # Room slugs are independent random values: no patient identifier or name is encoded.
+                # The room contains no patient name, code, or appointment ID.
                 room_name = secrets.token_hex(24)
                 created = now_iso()
                 with connect() as db:
-                    if not db.execute("SELECT 1 FROM patients WHERE id=?", (patient_id,)).fetchone():
-                        raise ValueError("Choose a registered patient.")
+                    # Serialize the check and insert across concurrent browser requests.
+                    db.execute("BEGIN IMMEDIATE")
+                    if not role_visibility.can_view_patient(db, user, patient_id):
+                        self.json({"error": "Patient not found or you do not have access."}, 404); return
+                    duplicate = db.execute(
+                        "SELECT id FROM consultations WHERE patient_id=? AND scheduled_at=? "
+                        "AND status='scheduled' LIMIT 1",
+                        (patient_id, scheduled_at),
+                    ).fetchone()
+                    if duplicate:
+                        self.json({"error": "This patient already has an appointment at that time.",
+                                   "existing_consultation_id": duplicate["id"]}, 409)
+                        return
                     db.execute(
-                        "INSERT INTO consultations(id,patient_id,room_name,scheduled_at,duration_minutes,created_by,created_at) "
-                        "VALUES(?,?,?,?,?,?,?)",
-                        (consultation_id, patient_id, room_name, scheduled_at, duration, user["id"], created),
+                        "INSERT INTO consultations(id,patient_id,room_name,scheduled_at,meeting_url,video_provider,duration_minutes,created_by,created_at) "
+                        "VALUES(?,?,?,?,?,?,?,?,?)",
+                        (consultation_id, patient_id, room_name, scheduled_at, "", "jitsi", duration, user["id"], created),
                     )
                     db.execute(
                         "INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)",
                         (user["id"], "created", "consultation", consultation_id, created),
                     )
                     row = db.execute(
-                        "SELECT c.id,c.scheduled_at,c.duration_minutes,c.status,c.created_at,"
-                        "p.name AS patient_name,p.patient_code FROM consultations c "
+                        "SELECT c.id,c.scheduled_at,c.duration_minutes,c.status,c.created_at,c.meeting_url,c.video_provider,"
+                        "p.id AS patient_id,p.name AS patient_name,p.patient_code FROM consultations c "
                         "JOIN patients p ON p.id=c.patient_id WHERE c.id=?",
                         (consultation_id,),
                     ).fetchone()
@@ -756,10 +787,11 @@ class Handler(BaseHTTPRequestHandler):
                     # concurrent cancellation cannot race a stale status read.
                     db.execute("BEGIN IMMEDIATE")
                     row = db.execute(
-                        "SELECT id,room_name,status,scheduled_at,duration_minutes FROM consultations WHERE id=?",
+                        "SELECT id,patient_id,room_name,status,scheduled_at,duration_minutes,meeting_url,video_provider "
+                        "FROM consultations WHERE id=?",
                         (consultation_id,),
                     ).fetchone()
-                    if not row:
+                    if not row or not role_visibility.can_view_patient(db, user, row["patient_id"]):
                         self.json({"error": "Appointment not found."}, 404)
                         return
                     if row["status"] != "scheduled":
@@ -767,53 +799,47 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     if action in {"cancel", "complete"}:
                         next_status = "cancelled" if action == "cancel" else "completed"
+                        changed_at = now_iso()
                         db.execute("UPDATE consultations SET status=? WHERE id=?", (next_status, consultation_id))
                         db.execute(
                             "INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)",
-                            (user["id"], next_status, "consultation", consultation_id, now_iso()),
+                            (user["id"], next_status, "consultation", consultation_id, changed_at),
                         )
-                        self.json({"ok": True, "status": next_status})
+                        response={"ok": True, "status": next_status}
+                        if action=="complete":
+                            response.update(completed_at=changed_at, completed_by_name=user["display_name"])
+                        self.json(response)
                         return
-                    settings = video_settings()
-                    if not settings:
-                        self.json({"error": "Video consultation is not configured. Contact an administrator."}, 503)
+                    if row["video_provider"] != "jitsi":
+                        self.json({"error": "This older appointment uses Google Meet. Schedule a Jitsi appointment to open a new call."}, 409)
+                        return
+                    try:
+                        meeting_url = jitsi_room_url(row["room_name"])
+                    except ValueError as exc:
+                        self.json({"error": str(exc)}, 409)
                         return
                     window = consultation_access_window(row)
-                    if not window["join_window_open"]:
-                        self.json({
-                            "error": "Call access is available from 15 minutes before the appointment until 30 minutes after its scheduled end.",
-                            **window,
-                        }, 409)
-                        return
-                    if settings["provider"] == "public_demo" and self.body().get("acknowledge_demo") is not True:
-                        self.json({"error": "Acknowledge that this public video demonstration uses synthetic data only."}, 400)
-                        return
                     if action == "invite":
                         db.execute(
                             "INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)",
                             (user["id"], "generated_guest_link", "consultation", consultation_id, now_iso()),
                         )
                         self.json({
-                            "guest_url": f"https://{settings['domain']}/{row['room_name']}",
-                            "provider": settings["provider"],
-                            "notice": settings["notice"],
+                            "guest_url": meeting_url,
+                            "provider": "jitsi",
+                            "notice": PUBLIC_VIDEO_DEMO_NOTICE,
                             "join_closes_at": window["join_closes_at"],
                         })
                         return
                     response = {
-                        "provider": settings["provider"],
-                        "domain": settings["domain"],
-                        "room_name": row["room_name"],
-                        "notice": settings["notice"],
+                        "provider": "jitsi",
+                        "meeting_url": meeting_url,
+                        "notice": PUBLIC_VIDEO_DEMO_NOTICE,
                         "join_closes_at": window["join_closes_at"],
-                        "expires_at": None,
                     }
-                    if settings["provider"] == "private":
-                        token, expires_at = make_jitsi_token(settings, row["room_name"])
-                        response.update({"jwt": token, "expires_at": expires_at})
                     db.execute(
                         "INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)",
-                        (user["id"], "joined", "consultation", consultation_id, now_iso()),
+                        (user["id"], "opened_meeting_link", "consultation", consultation_id, now_iso()),
                     )
                 self.json(response)
                 return
@@ -830,9 +856,9 @@ class Handler(BaseHTTPRequestHandler):
                     # Acquire SQLite's write reservation before checking so
                     # concurrent submissions cannot both pass the lookup.
                     db.execute("BEGIN IMMEDIATE")
-                    dupe = db.execute("SELECT patient_code FROM patients WHERE identity_key=? LIMIT 1", (identity_key,)).fetchone()
+                    dupe = db.execute("SELECT id,patient_code FROM patients WHERE identity_key=? LIMIT 1", (identity_key,)).fetchone()
                     if dupe:
-                        self.json({"error": "A record with this name, age, village and mobile number already exists.", "duplicate": dupe["patient_code"]}, 409); return
+                        self.json(duplicate_patient_error(db, user, dupe), 409); return
                     pid = str(uuid.uuid4()); code = f"AD-{date.today().year}-{secrets.token_hex(3).upper()}"; created = now_iso()
                     try:
                         db.execute("INSERT INTO patients(id,patient_code,name,age,gender,phone,village,district,history,symptoms,identity_key,consent,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -840,15 +866,15 @@ class Handler(BaseHTTPRequestHandler):
                     except sqlite3.IntegrityError:
                         # The unique index is the final guard if another writer
                         # bypasses this request's duplicate lookup.
-                        dupe = db.execute("SELECT patient_code FROM patients WHERE identity_key=? LIMIT 1", (identity_key,)).fetchone()
+                        dupe = db.execute("SELECT id,patient_code FROM patients WHERE identity_key=? LIMIT 1", (identity_key,)).fetchone()
                         if dupe:
-                            self.json({"error": "A record with this name, age, village and mobile number already exists.", "duplicate": dupe["patient_code"]}, 409); return
+                            self.json(duplicate_patient_error(db, user, dupe), 409); return
                         raise
                     db.execute("INSERT INTO audit_log(actor_id,action,entity_type,entity_id,created_at) VALUES(?,?,?,?,?)", (user["id"],"created","patient",pid,created))
                     patient = dict(db.execute("SELECT * FROM patients WHERE id=?", (pid,)).fetchone())
                 self.json({"patient": patient}, 201); return
             if path == "/api/screenings":
-                user = self.require_user({"health_worker", "medical_officer"})
+                user = self.require_user({"health_worker", "medical_officer", "specialist"})
                 if not user: return
                 ctype = self.headers.get("Content-Type", "")
                 if not ctype.startswith("multipart/form-data;"):
@@ -860,8 +886,7 @@ class Handler(BaseHTTPRequestHandler):
                 fields, image = parse_multipart(raw, boundary)
                 patient_id = fields.get("patient_id", "")
                 with connect() as db:
-                    patient = db.execute("SELECT created_by FROM patients WHERE id=?", (patient_id,)).fetchone()
-                    if not patient or (user["role"] == "health_worker" and patient["created_by"] != user["id"]):
+                    if not role_visibility.can_view_patient(db, user, patient_id):
                         self.json({"error":"Patient not found or you do not have access."},404); return
                     if not image or len(image) > MAX_IMAGE: raise ValueError("Choose an image smaller than 7 MB.")
                     info = image_info(image)
@@ -881,7 +906,8 @@ class Handler(BaseHTTPRequestHandler):
                 data=self.body(); patient_id=clean(data,"patient_id",40,required=True)
                 status=clean(data,"status",80,required=True); observations=clean(data,"observations",5000,required=True)
                 with connect() as db:
-                    if not db.execute("SELECT 1 FROM patients WHERE id=?",(patient_id,)).fetchone(): raise ValueError("Choose a registered patient.")
+                    if not role_visibility.can_view_patient(db, user, patient_id):
+                        self.json({"error":"Patient not found or you do not have access."},404); return
                     rid=str(uuid.uuid4()); created=now_iso()
                     db.execute("INSERT INTO reviews(id,patient_id,reviewer,status,observations,created_by,created_at) VALUES(?,?,?,?,?,?,?)",(rid,patient_id,clean(data,"reviewer",120,required=True),status,observations,user["id"],created))
                     db.execute("UPDATE screenings SET status='Reviewed' WHERE patient_id=? AND status='Awaiting clinical review'",(patient_id,))
@@ -891,8 +917,7 @@ class Handler(BaseHTTPRequestHandler):
             if path in ("/api/referrals", "/api/followups"):
                 data=self.body(); pid=clean(data,"patient_id",40,required=True); created=now_iso(); eid=str(uuid.uuid4())
                 with connect() as db:
-                    patient = db.execute("SELECT created_by FROM patients WHERE id=?", (pid,)).fetchone()
-                    if not patient or (user["role"] == "health_worker" and patient["created_by"] != user["id"]):
+                    if not role_visibility.can_view_patient(db, user, pid):
                         self.json({"error":"Patient not found or you do not have access."},404); return
                     if path.endswith("referrals"):
                         if user["role"] not in {"admin","medical_officer","specialist"}: self.json({"error":"Only clinical staff can create a referral."},403); return
@@ -915,9 +940,13 @@ class Handler(BaseHTTPRequestHandler):
                 data = self.body()
                 if data.get("acknowledge_experimental") is not True:
                     raise ValueError("Acknowledge that the generated output is experimental and unvalidated.")
+                if os.environ.get("AAROGYA_AI_PROVIDER", "local") == "gemini" and data.get("acknowledge_google_transfer") is not True:
+                    raise ValueError("Confirm sending the screening photograph to Google Gemini.")
                 sid = clean(data, "screening_id", 40, required=True)
                 with connect() as db:
                     row = db.execute("SELECT image_name FROM screenings WHERE id=?", (sid,)).fetchone()
+                    if row and not role_visibility.can_view_screening(db, user, sid):
+                        row = None
                 if not row:
                     self.json({"error": "Screening not found."}, 404); return
                 image_path = (UPLOAD_DIR / row["image_name"]).resolve()
@@ -987,6 +1016,14 @@ def create_user(username, password, role, display_name):
 
 
 def main():
+    # Reuse the user's saved Gemini configuration on ordinary demo restarts.
+    # An explicit AAROGYA_AI_PROVIDER=local keeps local inference selected.
+    if not os.environ.get("AAROGYA_AI_PROVIDER"):
+        from gemini_secret import load_key
+        saved_key = os.environ.get("GEMINI_API_KEY", "").strip() or load_key()
+        if saved_key:
+            os.environ["GEMINI_API_KEY"] = saved_key
+            os.environ["AAROGYA_AI_PROVIDER"] = "gemini"
     parser=argparse.ArgumentParser(description="Run the Aarogya Drishti local prototype")
     parser.add_argument("--create-user",action="store_true",help="Create a local account")
     parser.add_argument("--username"); parser.add_argument("--role",choices=sorted(ROLES),default="admin"); parser.add_argument("--display-name",default="")

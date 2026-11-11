@@ -30,15 +30,22 @@ clinician or an administrator; another clinician receives 404.
 | `GET /api/images/{screening_id}` | Authorized image access; images are not public static files. |
 | `POST /api/reviews` | Clinician-entered observations and review status. |
 | `POST /api/referrals`, `POST /api/followups` | Record referral or follow-up details. |
-| `GET/POST /api/consultations` | List or schedule clinician appointments. |
-| `POST /api/consultations/{id}/join` | Obtain configuration for the appointment's room. |
-| `POST /api/consultations/{id}/invite` | Obtain a patient guest URL for the same room. |
-| `POST /api/consultations/{id}/complete` or `/cancel` | End further room access through the application. |
+| `GET/POST /api/consultations` | List or schedule clinician appointments. A new appointment generates an opaque 48-character Jitsi room name; list entries include `patient_id`, video provider and, after completion, `completed_at` and `completed_by_name` from the audit event. |
+| `POST /api/consultations/{id}/join` | Return `meeting_url` for the generated Jitsi room to an authorized clinician while the appointment is scheduled, including an early connection check. Jitsi opens separately. |
+| `POST /api/consultations/{id}/invite` | Return `guest_url` for the same generated Jitsi room on a scheduled appointment. The app does not send it. |
+| `POST /api/consultations/{id}/complete` or `/cancel` | End further appointment actions through the application. Completion returns its actual audit timestamp and clinician name. |
 
-Public Jitsi demonstration join/invite requests require
-`{acknowledge_demo:true}`. Rooms have independent random names without patient
-identifiers. The backend manages appointment access; Jitsi transports media.
-Completion cannot revoke a public room link already copied outside the app.
+The server creates the room name without embedding a patient name, code or
+appointment ID. The join and invitation actions build a `https://meet.jit.si/`
+URL from that stored name. Older Google Meet appointments remain in history but
+cannot be opened through this restored Jitsi flow; schedule a new appointment.
+The backend manages appointment access; public Jitsi transports media and
+controls admission. The host must sign in on `meet.jit.si` to start the room.
+Completion cannot revoke a public meeting link already copied outside the app.
+Scheduling the same patient at the same normalized UTC minute while an appointment
+remains scheduled returns HTTP 409. Duration and creator do not bypass this check.
+Past completed or cancelled appointments can be scheduled again; historical
+duplicate records remain visible with distinct appointment references.
 
 ## Longitudinal clinical records
 
@@ -97,12 +104,18 @@ Statuses are queued, running, succeeded, failed or interrupted. No percentage is
 fabricated. A succeeded result contains text, model, notice, `validated:false`,
 `inference_id`, and `inference_audit_id`. Failed jobs have no result. Restarted
 unfinished jobs are explicitly interrupted and can be resubmitted.
+`GET /api/ai/jobs?screening_id={id}` returns the signed-in clinician's latest
+job for that screening, allowing the UI to resume a running job after refresh.
 
 `GET /api/ai/results/{screening_id}` returns `{inferences:[...]}` newest first,
 including the exact saved output, model, notice and generation audit id. The
 `runtime` object preserves the checkpoint revision, execution mode and truncation
 flag from the server-produced result (`runtime_json` in SQLite). It is separate
 from the clinician's review and is never accepted as a client-supplied inference.
+The result and saved-inference read responses also include `inconsistent` and
+`output_warning` from a narrow text consistency check. Older raw text is
+assessed when read; no saved model output is rewritten. A negative flag does
+not establish that the model observation is accurate.
 The
 legacy synchronous `POST /api/ai/analyze` also persists a successful result, but
 the asynchronous route avoids long HTTP requests while CPU inference runs.

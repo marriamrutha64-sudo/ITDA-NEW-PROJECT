@@ -1,18 +1,19 @@
-"""Real HTTP control-plane checks; Jitsi transports the actual audio/video."""
+"""HTTP checks for the public Jitsi consultation control plane."""
 
 from contextlib import ExitStack
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import http.cookiejar
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
 import threading
 import unittest
 from unittest.mock import patch
 import urllib.error
 import urllib.request
-from urllib.parse import urlparse
+from uuid import uuid4
 
 import app
 
@@ -28,17 +29,18 @@ class VideoBackendDryRunTests(unittest.TestCase):
         ))
         stack.enter_context(patch.dict(os.environ, {
             "AAROGYA_SESSION_SECRET": "synthetic-video-dryrun-secret-12345678901234567890",
-            "AAROGYA_VIDEO_PROVIDER": "public_demo",
             "AAROGYA_PUBLIC_DEMO": "1",
         }))
         cls.password = "synthetic-dryrun-password-123"
-        app.create_user("dryrun-doctor", cls.password, "medical_officer", "Synthetic Doctor")
-        app.create_user("dryrun-worker", cls.password, "health_worker", "Synthetic Worker")
+        for username, role in (("dryrun-doctor", "medical_officer"),
+                               ("dryrun-worker", "health_worker"),
+                               ("dryrun-specialist", "specialist"),
+                               ("dryrun-admin", "admin")):
+            app.create_user(username, cls.password, role, f"Synthetic {role}")
         cls.server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.base_url = f"http://127.0.0.1:{cls.server.server_address[1]}"
-        # Stop requests before the database paths and environment are restored.
         stack.callback(cls.stop_server)
 
     @classmethod
@@ -65,97 +67,139 @@ class VideoBackendDryRunTests(unittest.TestCase):
         except urllib.error.HTTPError as error:
             response = error
         with response:
-            return response.status, json.loads(response.read()), response.headers
+            return response.status, json.loads(response.read())
 
     def login(self, username):
         client = self.client()
-        status, result, _ = self.request_json(client, "/api/login", {
+        status, result = self.request_json(client, "/api/login", {
             "username": username, "password": self.password,
         })
         self.assertEqual(status, 200)
         return client, result["user"]
 
-    def test_doctor_schedules_and_shares_same_room_with_guest_then_completes(self):
-        doctor, user = self.login("dryrun-doctor")
-        self.assertEqual(user["role"], "medical_officer")
-        worker, _ = self.login("dryrun-worker")
-        status, result, _ = self.request_json(worker, "/api/patients", {
-            "name": "Synthetic Audio Demonstration", "age": 40,
-            "village": "Synthetic Village", "phone": "+1 555 0123", "consent": True,
+    def patient(self, worker, suffix):
+        status, result = self.request_json(worker, "/api/patients", {
+            "name": f"Synthetic Video {suffix}", "age": 40,
+            "village": "Synthetic Village", "phone": f"+1 555 {suffix}", "consent": True,
         })
         self.assertEqual(status, 201)
-        patient = result["patient"]
+        return result["patient"]
+
+    def test_clinician_and_guest_receive_exact_same_opaque_room(self):
+        doctor, user = self.login("dryrun-doctor")
+        worker, _ = self.login("dryrun-worker")
+        specialist, _ = self.login("dryrun-specialist")
+        admin, _ = self.login("dryrun-admin")
+        patient = self.patient(worker, "0111")
         appointment = {
             "patient_id": patient["id"],
-            "scheduled_at": datetime.now(timezone.utc).isoformat(), "duration_minutes": 15,
+            "scheduled_at": datetime.now(timezone.utc).isoformat(),
+            "duration_minutes": 15,
         }
         for client, expected in ((self.client(), 401), (worker, 403)):
-            with self.subTest(expected=expected):
-                status, _, _ = self.request_json(client, "/api/consultations", appointment)
-                self.assertEqual(status, expected)
+            self.assertEqual(self.request_json(client, "/api/consultations", appointment)[0], expected)
         for origin in (False, "https://other-origin.example"):
-            with self.subTest(origin=origin):
-                status, _, _ = self.request_json(doctor, "/api/consultations", appointment, origin=origin)
-                self.assertEqual(status, 403)
+            self.assertEqual(self.request_json(doctor, "/api/consultations", appointment, origin=origin)[0], 403)
 
-        status, result, _ = self.request_json(doctor, "/api/consultations", appointment)
+        status, result = self.request_json(doctor, "/api/consultations", appointment)
         self.assertEqual(status, 201)
-        consultation_id = result["consultation"]["id"]
-        self.assertNotIn("room_name", result["consultation"])
+        consultation = result["consultation"]
+        consultation_id = consultation["id"]
+        self.assertEqual(consultation["video_provider"], "jitsi")
+        self.assertNotIn("room_name", consultation)
+        self.assertEqual(consultation["meeting_url"], "")
         base = f"/api/consultations/{consultation_id}"
-        for action in ("join", "invite"):
-            with self.subTest(action=action):
-                status, _, _ = self.request_json(doctor, f"{base}/{action}", {})
-                self.assertEqual(status, 400)
-                status, _, _ = self.request_json(worker, f"{base}/{action}", {"acknowledge_demo": True})
-                self.assertEqual(status, 403)
-                status, _, _ = self.request_json(self.client(), f"{base}/{action}", {"acknowledge_demo": True})
-                self.assertEqual(status, 401)
-
-        status, joined, _ = self.request_json(doctor, f"{base}/join", {"acknowledge_demo": True})
+        status, listing = self.request_json(specialist, "/api/consultations")
         self.assertEqual(status, 200)
-        self.assertEqual(joined["provider"], "public_demo")
-        self.assertEqual(joined["domain"], "meet.jit.si")
+        self.assertEqual(listing["provider"], "jitsi")
+        item = next(row for row in listing["consultations"] if row["id"] == consultation_id)
+        self.assertTrue(item["can_join"])
+        self.assertEqual(item["video_provider"], "jitsi")
+        self.assertEqual(self.request_json(admin, "/api/consultations")[0], 200)
+        for client, expected in ((self.client(), 401), (worker, 403)):
+            for action in ("join", "invite", "complete", "cancel"):
+                self.assertEqual(self.request_json(client, f"{base}/{action}", {})[0], expected)
+
+        status, joined = self.request_json(doctor, f"{base}/join", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(joined["provider"], "jitsi")
+        self.assertRegex(joined["meeting_url"], r"^https://meet\.jit\.si/[0-9a-f]{48}$")
+        self.assertNotIn(patient["id"], joined["meeting_url"])
+        self.assertNotIn(patient["patient_code"], joined["meeting_url"])
         self.assertNotIn("jwt", joined)
-        self.assertRegex(joined["room_name"], r"^[0-9a-f]{48}$")
-        status, invited, _ = self.request_json(doctor, f"{base}/invite", {"acknowledge_demo": True})
+        status, invited = self.request_json(specialist, f"{base}/invite", {})
         self.assertEqual(status, 200)
-        guest_url = urlparse(invited["guest_url"])
-        self.assertEqual((guest_url.scheme, guest_url.netloc, guest_url.path), (
-            "https", joined["domain"], "/" + joined["room_name"],
-        ))
+        self.assertEqual(invited["provider"], "jitsi")
+        self.assertEqual(invited["guest_url"], joined["meeting_url"])
         self.assertEqual(invited["join_closes_at"], joined["join_closes_at"])
-        self.assertNotIn(patient["id"], invited["guest_url"])
-        self.assertNotIn(patient["patient_code"], invited["guest_url"])
 
-        status, finished, _ = self.request_json(doctor, f"{base}/complete", {})
+        status, finished = self.request_json(doctor, f"{base}/complete", {})
         self.assertEqual(status, 200)
         self.assertEqual(finished["status"], "completed")
-        for action in ("join", "invite"):
-            status, _, _ = self.request_json(doctor, f"{base}/{action}", {"acknowledge_demo": True})
-            self.assertEqual(status, 409)
-        status, listing, _ = self.request_json(doctor, "/api/consultations")
-        self.assertEqual(status, 200)
-        completed = next(item for item in listing["consultations"] if item["id"] == consultation_id)
-        self.assertFalse(completed["can_join"])
-        self.assertEqual(completed["access_state"], "completed")
+        self.assertEqual(self.request_json(doctor, f"{base}/join", {})[0], 409)
+        self.assertEqual(self.request_json(doctor, f"{base}/invite", {})[0], 409)
         with app.connect() as db:
             audit = db.execute(
-                "SELECT actor_id, action FROM audit_log WHERE entity_type='consultation' AND entity_id=? ORDER BY id",
+                "SELECT action FROM audit_log WHERE entity_type='consultation' AND entity_id=? ORDER BY id",
                 (consultation_id,),
             ).fetchall()
-        self.assertEqual([(row["actor_id"], row["action"]) for row in audit], [
-            (user["id"], action) for action in ("created", "joined", "generated_guest_link", "completed")
+        self.assertEqual([row["action"] for row in audit], [
+            "created", "opened_meeting_link", "generated_guest_link", "completed",
         ])
 
-    def test_app_headers_allow_selected_jitsi_frame_without_disabling_microphone(self):
+    def test_separate_appointments_have_separate_rooms_and_duplicate_is_blocked(self):
+        doctor, _ = self.login("dryrun-doctor")
+        worker, _ = self.login("dryrun-worker")
+        first_patient = self.patient(worker, "0112")
+        second_patient = self.patient(worker, "0113")
+        start = (datetime.now(timezone.utc) + timedelta(hours=2)).replace(second=0, microsecond=0).isoformat()
+        payload = {"patient_id": first_patient["id"], "scheduled_at": start, "duration_minutes": 15}
+        status, first = self.request_json(doctor, "/api/consultations", payload)
+        self.assertEqual(status, 201)
+        status, duplicate = self.request_json(doctor, "/api/consultations", payload)
+        self.assertEqual(status, 409)
+        self.assertEqual(duplicate["existing_consultation_id"], first["consultation"]["id"])
+        status, second = self.request_json(doctor, "/api/consultations", {
+            **payload, "patient_id": second_patient["id"],
+        })
+        self.assertEqual(status, 201)
+        first_url = self.request_json(doctor, f"/api/consultations/{first['consultation']['id']}/join", {})[1]["meeting_url"]
+        second_url = self.request_json(doctor, f"/api/consultations/{second['consultation']['id']}/join", {})[1]["meeting_url"]
+        self.assertNotEqual(first_url, second_url)
+
+    def test_legacy_meet_record_stays_visible_and_cannot_open_as_jitsi(self):
+        doctor, user = self.login("dryrun-doctor")
+        worker, _ = self.login("dryrun-worker")
+        patient = self.patient(worker, "0114")
+        consultation_id = str(uuid4())
+        start = datetime.now(timezone.utc).isoformat()
+        old_link = "https://meet.google.com/mno-pqrs-tuv"
+        with app.connect() as db:
+            db.execute(
+                "INSERT INTO consultations(id,patient_id,room_name,scheduled_at,meeting_url,video_provider,duration_minutes,created_by,created_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
+                (consultation_id, patient["id"], "legacy-" + consultation_id, start, old_link,
+                 "google_meet", 15, user["id"], start),
+            )
+        status, listing = self.request_json(doctor, "/api/consultations")
+        self.assertEqual(status, 200)
+        item = next(row for row in listing["consultations"] if row["id"] == consultation_id)
+        self.assertEqual(item["video_provider"], "google_meet")
+        self.assertEqual(item["meeting_url"], old_link)
+        self.assertFalse(item["can_join"])
+        for action in ("join", "invite"):
+            status, response = self.request_json(doctor, f"/api/consultations/{consultation_id}/{action}", {})
+            self.assertEqual(status, 409)
+            self.assertIn("Schedule a Jitsi appointment", response["error"])
+        self.assertEqual(self.request_json(
+            doctor, f"/api/consultations/{consultation_id}/complete", {},
+        )[0], 200)
+
+    def test_external_video_does_not_require_embedded_permissions(self):
         with self.client().open(self.base_url + "/", timeout=5) as response:
-            self.assertEqual(response.status, 200)
             csp = response.headers["Content-Security-Policy"]
-            self.assertIn("frame-src https://meet.jit.si", csp)
-            self.assertIn("script-src 'self' https://meet.jit.si", csp)
-            # Frame permission delegation still depends on the browser/Jitsi embed.
-            self.assertNotRegex(response.headers.get("Permissions-Policy", ""), r"(?:microphone|camera)=\(\)")
+            self.assertIn("frame-src 'none'", csp)
+            self.assertNotIn("meet.jit.si", csp)
 
 
 if __name__ == "__main__":

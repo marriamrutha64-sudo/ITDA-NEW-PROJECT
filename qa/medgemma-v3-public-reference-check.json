@@ -1,0 +1,10 @@
+{
+  "checked_at_utc": "2026-11-10T19:18:59.444529+00:00",
+  "source_image": "assets/reference/tongue-reference.jpg",
+  "public_reference": true,
+  "prompt_version": "oral-observations-grounded-v3",
+  "completed": false,
+  "elapsed_limit_seconds": 300,
+  "error": "Local model could not finish within five minutes; no generated result was saved.",
+  "clinical_validation": false
+}

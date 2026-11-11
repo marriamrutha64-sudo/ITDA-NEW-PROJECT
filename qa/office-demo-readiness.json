@@ -1,0 +1,242 @@
+{
+  "checked_at_utc": "2026-11-10T19:57:00.811826+00:00",
+  "passed": true,
+  "checks": [
+    {
+      "check": "application health",
+      "passed": true
+    },
+    {
+      "check": "public asset",
+      "path": "/",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "78c2a4390081e1604f6c8840c969a0a82635af660773582ec8bd17595247195c"
+    },
+    {
+      "check": "public asset",
+      "path": "/app.js",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "790db30fdc78f78866bbe182cc14e297fcbb6e03bf7b597141ce89abd8d91add"
+    },
+    {
+      "check": "public asset",
+      "path": "/assets/illustrations/care-journey-india.png",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "a7b6c3e8280e19d8ee184cb2eefdd2734c44bc6b78375381ddf1c76e5c5ce95c"
+    },
+    {
+      "check": "public asset",
+      "path": "/assets/illustrations/privacy-stewardship-india.png",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "e74dca5bb965cd7686dd10eb4083a792d440223c4d54a96ed3a009ac72539ad1"
+    },
+    {
+      "check": "public asset",
+      "path": "/assets/illustrations/teleconsultation-india.png",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "98c24790e2fed19a06ded2844145926559900237068a03066514882420c95508"
+    },
+    {
+      "check": "public asset",
+      "path": "/assets/reference/clinic-reference.jpg",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "2853f2c6b0a3974a973eb48bf62bc29e7057ef2789ea8b24cf83211708030124"
+    },
+    {
+      "check": "public asset",
+      "path": "/assets/reference/examination-reference.jpg",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "c377dee8b68b861d732f5b882ede28fce4f3dd7eadb4b4a11144a4559bab5c11"
+    },
+    {
+      "check": "public asset",
+      "path": "/assets/reference/gums-reference.jpg",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "790f55d2af5c612d9f0e4fb6bd1dfb3ec57dba0abfe48d8cff97c577b5b041d6"
+    },
+    {
+      "check": "public asset",
+      "path": "/assets/reference/outreach-reference.jpg",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "24c740347871e1f21c1f58c82d41c2c0d03efd177dc72495d111c4e03e42dd3c"
+    },
+    {
+      "check": "public asset",
+      "path": "/assets/reference/palate-reference.jpg",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "64505014a05b7115815d4e758c92a34cf09c90af1afb2e1739a0d9d95b296df9"
+    },
+    {
+      "check": "public asset",
+      "path": "/assets/reference/tongue-reference.jpg",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "660ee9e7e7f3c359084ca76cbbf99fb84c294bca1d7c6f913cc924a1a240d059"
+    },
+    {
+      "check": "public asset",
+      "path": "/assets/reference/ulcer-reference-poster.jpg",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "33f21fd48493a4f1ba6d2d4d69693ee77d4a0a003576c7841997f972fd5015d0"
+    },
+    {
+      "check": "public asset",
+      "path": "/call-diagnostics.js",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "5961b5b04e4da808c2d386f75408eaa08ecf787a9bd05f8861b35b0e00ce9692"
+    },
+    {
+      "check": "public asset",
+      "path": "/care-records.js",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "d1f67d97b955602d188fdd79ae23606102bac7d9e557ef902c153df27df22c71"
+    },
+    {
+      "check": "public asset",
+      "path": "/gallery.js",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "9f9b8d8fd3c706e0fe7f096ba19ab8f3c43e966ae46cd55df4261f4ac4ff9ce4"
+    },
+    {
+      "check": "public asset",
+      "path": "/icon.svg",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "eb5889f0b577784806f14ddd065247f3c39ebd20205280928c9690c8f272baae"
+    },
+    {
+      "check": "public asset",
+      "path": "/index.html",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "78c2a4390081e1604f6c8840c969a0a82635af660773582ec8bd17595247195c"
+    },
+    {
+      "check": "public asset",
+      "path": "/manifest.json",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "fcd313e8d44b12d41e589214eb5f2bb2a6cfaf85b44928c228d798f2f16e2185"
+    },
+    {
+      "check": "public asset",
+      "path": "/medgemma-ui.js",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "ba1b99b9047a0d283016276c9130b07168b0ce591c0635e3c40233b80087d9a5"
+    },
+    {
+      "check": "public asset",
+      "path": "/offline-capture-ui.js",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "d5738ae8aedfae44c52b7cacd32bf25892438cca1885f0ce6faebb7357b18736"
+    },
+    {
+      "check": "public asset",
+      "path": "/offline-screening.js",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "b6e65ae7fed8dd0c22da03567db8d11e1ef0060e098ddfbb2ffcb02f9a58157d"
+    },
+    {
+      "check": "public asset",
+      "path": "/offline-vault.js",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "b76349cbadf9a23e8dd57fbd9e51b7daf341e84948d484a01491aba91d710f38"
+    },
+    {
+      "check": "public asset",
+      "path": "/patient-call.html",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "35076acc36d32a60c4eac4983aa2ecf5d4c69c4cc9bfb45910e54024adad4202"
+    },
+    {
+      "check": "public asset",
+      "path": "/patient-call.js",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "aaad63f4265145825c1e6d00c218246f60973b8479bedff4ddcb7a5735a39ded"
+    },
+    {
+      "check": "public asset",
+      "path": "/reference-labels.js",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "db52b2e2881790148d8aa1dc040d0ed1f892140fa460b62a2d228d569fc82435"
+    },
+    {
+      "check": "public asset",
+      "path": "/service-worker.js",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "18f5b88793f8ed8edbd79b16a50354d6294bfd9f664d9b3f21d454fa04979101"
+    },
+    {
+      "check": "public asset",
+      "path": "/styles.css",
+      "passed": true,
+      "http_status": 200,
+      "sha256": "f7cf9aa473b02f71e89923c3a2442860c8553f325d5f626826bcf1feb76670c8"
+    },
+    {
+      "check": "private source denied",
+      "path": "/app.py",
+      "passed": true,
+      "http_status": 404
+    },
+    {
+      "check": "private source denied",
+      "path": "/.env",
+      "passed": true,
+      "http_status": 404
+    },
+    {
+      "check": "private source denied",
+      "path": "/.git/config",
+      "passed": true,
+      "http_status": 404
+    },
+    {
+      "check": "private source denied",
+      "path": "/.private-data/aarogya.sqlite3",
+      "passed": true,
+      "http_status": 404
+    },
+    {
+      "check": "patient API requires sign-in",
+      "passed": true,
+      "http_status": 401
+    },
+    {
+      "check": "patient response is not cached",
+      "passed": true
+    }
+  ],
+  "ai_available": true,
+  "ai_busy": false,
+  "scope": "Read-only HTTP preflight; no authenticated patient workflow or model inference executed",
+  "not_verified": [
+    "Actual two-person video/audio on separate devices",
+    "Clinical AI performance",
+    "Authenticated office-demo rehearsal",
+    "Production hosting/security",
+    "Phone accessibility and offline field usability"
+  ]
+}

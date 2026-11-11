@@ -87,7 +87,7 @@ def ready(url, timeout=3):
             payload = json.load(response)
             return (isinstance(payload, dict) and payload.get("ok") is True
                     and payload.get("service") == "aarogya-drishti"
-                    and "https://meet.jit.si" in response.headers.get("Content-Security-Policy", ""))
+                    and payload.get("video_provider") == "jitsi")
     except (OSError, ValueError, urllib.error.URLError):
         return False
 
@@ -199,7 +199,7 @@ def start_demo(client, port, data_dir, accounts, timeout):
             if not interpreter.is_file():
                 interpreter = Path(sys.executable)
             environment = dict(os.environ, AAROGYA_DATA_DIR=str(data_dir),
-                               AAROGYA_VIDEO_PROVIDER="public_demo", AAROGYA_PUBLIC_DEMO="1",
+                               AAROGYA_PUBLIC_DEMO="1",
                                AAROGYA_SESSION_SECRET=secrets.token_urlsafe(48))
             backend_log = LOG_DIR / "public-demo-backend.log"
             process = background(
@@ -268,7 +268,7 @@ def main():
         print(url)
         print("Open this HTTPS address on any Internet-connected phone, tablet, or computer.")
         print("Accounts: " + ", ".join(accounts) + ". Use the passwords already configured for them.")
-        print("Synthetic cases only. The doctor signs into public Jitsi separately for video.")
+        print("Synthetic cases only. Start the Jitsi room in its own tab; the host signs in there.")
         print("Keep this PC awake and online. The Python server and Cloudflare tunnel must keep running.")
         print("This temporary link changes after restarting the tunnel; it is not permanent hosting.")
         print(f"Process details and private logs: {STATE_PATH}")

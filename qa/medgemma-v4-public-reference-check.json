@@ -1,0 +1,33 @@
+{
+  "checked_at_utc": "2026-11-10T19:19:29.794614+00:00",
+  "source_image": "assets\\reference\\tongue-reference.jpg",
+  "public_reference": true,
+  "prompt_version": "oral-observations-grounded-v4",
+  "clinical_validation": false,
+  "completed": true,
+  "elapsed_seconds": 156.14,
+  "result": {
+    "text": "Close-up view of a human tongue. The image shows a distinct, round lesion with a yellowish center and a red border. The surrounding tissue appears inflamed. The teeth and gums are visible in the background.",
+    "model": "google/medgemma-1.5-4b-it",
+    "model_revision": "91850547d9f0b2fdd21aa7c5f4f3d1a8a52c243b",
+    "validated": false,
+    "truncated": false,
+    "inconsistent": false,
+    "output_warning": null,
+    "execution": {
+      "mode": "bfloat16",
+      "device": "cpu",
+      "threads": 8,
+      "compute": "float32",
+      "prompt_version": "oral-observations-grounded-v4",
+      "checkpoint_modified": false,
+      "clinically_validated": false,
+      "load_seconds": 4.2,
+      "generation_seconds": 137.0,
+      "total_seconds": 141.28,
+      "generated_tokens": 44,
+      "preprocess_seconds": 0.08
+    },
+    "notice": "NOT FOR CLINICAL USE. Unvalidated generated observations; clinician review is required. No diagnostic accuracy or confidence is established."
+  }
+}

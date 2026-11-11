@@ -3,6 +3,8 @@ from datetime import date, datetime, timezone
 import re
 import uuid
 import json
+import medgemma_runtime
+import role_visibility
 
 
 CLINICAL_ROLES = {"admin", "medical_officer", "specialist"}
@@ -108,7 +110,7 @@ def _date(data, key, required=False, allow_timestamp=False):
 
 def _patient(db, patient_id, user):
     row = db.execute("SELECT id,created_by FROM patients WHERE id=?", (patient_id,)).fetchone()
-    if not row or (user["role"] == "health_worker" and row["created_by"] != user["id"]):
+    if not row or not role_visibility.can_view_patient(db, user, patient_id):
         return None
     return row
 
@@ -129,6 +131,7 @@ def _inference(row):
     record = dict(row)
     record["validated"] = False
     record["runtime"] = json.loads(record.pop("runtime_json", "{}"))
+    record.update(medgemma_runtime.assess_output(record.get("text")))
     return record
 
 
@@ -165,7 +168,7 @@ def record_ai_inference(db, user, screening_id, result, runtime):
         raise ValueError("Inference execution metadata is too long.")
     if not db.in_transaction:
         db.execute("BEGIN IMMEDIATE")
-    if not db.execute("SELECT 1 FROM screenings WHERE id=?", (screening_id,)).fetchone():
+    if not role_visibility.can_view_screening(db, user, screening_id):
         raise ValueError("Choose a registered screening.")
     record_id, created = str(uuid.uuid4()), runtime.now_iso()
     db.execute("SAVEPOINT save_ai_inference")
@@ -202,7 +205,7 @@ def handle_get(handler, user, path, runtime):
             return True
         screening_id = inference_match.group(1)
         with runtime.connect() as db:
-            if len(screening_id) > 40 or not db.execute("SELECT 1 FROM screenings WHERE id=?", (screening_id,)).fetchone():
+            if len(screening_id) > 40 or not role_visibility.can_view_screening(db, user, screening_id):
                 handler.json({"error": "Screening not found."}, 404)
                 return True
             rows = db.execute(

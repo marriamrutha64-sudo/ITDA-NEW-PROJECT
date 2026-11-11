@@ -1,22 +1,12 @@
 """Focused unit coverage for backend validation and security helpers."""
-import base64
-import hashlib
-import hmac
-import json
-import os
 import struct
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import app
-
-
-def decode_segment(segment):
-    return json.loads(base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4)))
 
 
 class BackendHelpersTest(unittest.TestCase):
@@ -41,45 +31,20 @@ class BackendHelpersTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "has not passed"):
             app.parse_appointment_time(past)
 
-    def test_jitsi_token_is_hmac_signed_and_scoped_to_one_room(self):
-        settings = {
-            "domain": "video.example.org",
-            "app_id": "aarogya-demo",
-            "app_secret": "test-only-secret-value-that-is-long-enough",
-        }
-        token, expires = app.make_jitsi_token(settings, "a" * 48)
-        header, claims, signature = token.split(".")
-        self.assertEqual(decode_segment(header), {"alg": "HS256", "typ": "JWT"})
-        payload = decode_segment(claims)
-        self.assertEqual(payload["aud"], settings["app_id"])
-        self.assertEqual(payload["iss"], settings["app_id"])
-        self.assertEqual(payload["sub"], settings["domain"])
-        self.assertEqual(payload["room"], "a" * 48)
-        self.assertLessEqual(payload["exp"] - payload["iat"], 600)
-        self.assertEqual(expires, payload["exp"])
-        unsigned = f"{header}.{claims}".encode("ascii")
-        expected = hmac.new(settings["app_secret"].encode(), unsigned, hashlib.sha256).digest()
-        actual = base64.urlsafe_b64decode(signature + "=" * (-len(signature) % 4))
-        self.assertTrue(hmac.compare_digest(expected, actual))
-
-    def test_jitsi_is_disabled_without_valid_private_server_configuration(self):
-        clean_env = {
-            key: value
-            for key, value in os.environ.items()
-            if not key.startswith("AAROGYA_JITSI_")
-        }
-        with patch.dict(os.environ, clean_env, clear=True):
-            self.assertIsNone(app.jitsi_settings())
-        with patch.dict(
-            os.environ,
-            {
-                "AAROGYA_JITSI_DOMAIN": "meet.example.org",
-                "AAROGYA_JITSI_APP_ID": "aarogya",
-                "AAROGYA_JITSI_APP_SECRET": "x" * 32,
-            },
-            clear=False,
+    def test_google_meet_link_requires_exact_host_and_code(self):
+        valid = "https://meet.google.com/mno-pqrs-tuv"
+        self.assertEqual(app.validate_meeting_url(valid), valid)
+        self.assertEqual(app.validate_meeting_url(valid + "/"), valid)
+        with self.assertRaisesRegex(ValueError, "Create a real meeting"):
+            app.validate_meeting_url("https://meet.google.com/abc-defg-hij")
+        for invalid in (
+            "http://meet.google.com/mno-pqrs-tuv", "https://meet.google.com.evil/mno-pqrs-tuv",
+            "https://meet.google.com/landing", "https://meet.google.com/mno-pqrs-tuv?authuser=0",
+            "https://meet.google.com/mno-pqrs-tuv#fragment", "https://user@meet.google.com/mno-pqrs-tuv",
+            "https://meet.google.com/mno-pqrs-tuv/extra", "javascript:alert(1)", None,
         ):
-            self.assertEqual(app.jitsi_settings()["domain"], "meet.example.org")
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                app.validate_meeting_url(invalid)
 
     def test_image_header_parser_returns_supported_dimensions(self):
         png = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + struct.pack(">II", 640, 480)

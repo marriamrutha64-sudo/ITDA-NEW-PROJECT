@@ -1,0 +1,32 @@
+{
+  "scope": "Unauthenticated local health requests during separate real synthetic benchmark; no AI request or patient data",
+  "samples": [
+    {
+      "status": 200,
+      "seconds": 0.0481,
+      "ai_busy": true
+    },
+    {
+      "status": 200,
+      "seconds": 0.0086,
+      "ai_busy": true
+    },
+    {
+      "status": 200,
+      "seconds": 0.0109,
+      "ai_busy": true
+    },
+    {
+      "status": 200,
+      "seconds": 0.0106,
+      "ai_busy": true
+    },
+    {
+      "status": 200,
+      "seconds": 0.0102,
+      "ai_busy": true
+    }
+  ],
+  "max_seconds": 0.0481,
+  "all_successful": true
+}

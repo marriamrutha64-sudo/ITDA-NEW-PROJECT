@@ -142,6 +142,17 @@ class AccessAndStaticTests(unittest.TestCase):
                 self.assertEqual(headers.get_content_type(), "image/jpeg")
                 self.assertTrue(body.startswith(b"\xff\xd8"))
                 self.assertEqual(body, (app.ROOT / "assets" / "reference" / name).read_bytes())
+        for name in (
+            "teleconsultation-india.png", "care-journey-india.png", "privacy-stewardship-india.png",
+            "overview-community-india.png", "overview-clinic-india.png", "patient-registration-india.png",
+            "oral-screening-setup-india.png", "clinician-review-india.png", "visual-reference-india.png",
+        ):
+            with self.subTest(illustration=name):
+                status, headers, illustration = self.request(client, "/assets/illustrations/" + name)
+                self.assertEqual(status, 200)
+                self.assertEqual(headers.get_content_type(), "image/png")
+                self.assertTrue(illustration.startswith(b"\x89PNG\r\n\x1a\n"))
+                self.assertEqual(illustration, (app.ROOT / "assets" / "illustrations" / name).read_bytes())
         status, _, index = self.request(client, "/")
         self.assertEqual(status, 200)
         parser = ScriptSources()

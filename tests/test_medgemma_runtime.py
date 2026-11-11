@@ -8,10 +8,43 @@ import unittest
 from unittest.mock import patch
 
 import medgemma_runtime as runtime
+import medgemma_worker
 import inference_lock
 
 
 class MedGemmaTests(unittest.TestCase):
+    def test_prompt_requests_observations_without_routine_unrelated_label(self):
+        prompt = medgemma_worker.ORAL_OBSERVATION_PROMPT
+        self.assertIn("Exactly three lines", prompt)
+        self.assertIn("at most 35 words total", prompt)
+        self.assertIn("if no oral anatomy is identifiable", prompt)
+        self.assertNotIn("unrelated", prompt.lower())
+        self.assertIn("No diagnosis", prompt)
+        self.assertEqual(medgemma_worker.PROMPT_VERSION, "oral-observations-grounded-v4")
+        self.assertEqual(medgemma_worker.CPU_MAX_NEW_TOKENS, 64)
+
+    def test_explicit_unrelated_claim_conflicts_with_visible_oral_anatomy(self):
+        text = ("Visible observations: There is a visible ulcerated lesion on the tongue.\n"
+                "Unrelated: The image is unrelated.")
+        assessment = runtime.assess_output(text)
+        self.assertTrue(assessment["inconsistent"])
+        self.assertIn("internally inconsistent", assessment["output_warning"])
+        for other in ("The image is unrelated to oral health.",
+                      "Observations: No tongue or teeth are visible.\nUnrelated: The image is unrelated.",
+                      "Observations: The tongue is not visible.\nUnrelated: The image is unrelated.",
+                      "The tongue is visible; the image is not unrelated.", None):
+            self.assertFalse(runtime.assess_output(other)["inconsistent"])
+
+    def test_inconsistent_worker_output_keeps_verbatim_text_and_adds_warning(self):
+        text = ("Visible observations: The tongue has a focal color change.\n"
+                "Unrelated: The image is unrelated.")
+        response = SimpleNamespace(returncode=0, stdout=json.dumps({"text": text}))
+        with patch.dict(os.environ,{"AAROGYA_MEDGEMMA_MODEL_DIR":"__test_stub_consistency__"}), patch.object(runtime, "status", return_value={"available": True}), patch.object(subprocess, "run", return_value=response):
+            result = runtime.analyze("synthetic.png")
+        self.assertEqual(result["text"], text)
+        self.assertTrue(result["inconsistent"])
+        self.assertIn("internally inconsistent", result["notice"])
+
     def test_missing_weights_fail_without_starting_worker(self):
         with patch.dict(os.environ, {"AAROGYA_MEDGEMMA_MODEL_DIR": "__test_missing_model__"}, clear=True), patch.object(subprocess, "run") as run:
             with self.assertRaises(runtime.InferenceUnavailable):

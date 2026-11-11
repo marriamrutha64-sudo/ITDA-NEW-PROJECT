@@ -66,7 +66,8 @@
     insufficient: ["Image or AI observations insufficient", "చిత్రం లేదా AI పరిశీలనలు సరిపోవు"],
     independent: ["Independent assessment without AI reliance", "AI మీద ఆధారపడని స్వతంత్ర అంచనా"],
     not_recorded: ["Not recorded", "నమోదు కాలేదు"], recorded: ["Recorded", "నమోదైంది"], reviewed: ["Reviewed", "సమీక్షించారు"],
-    awaiting_clinical_review: ["Awaiting clinical review", "వైద్య సమీక్ష కోసం వేచి ఉంది"]
+    awaiting_clinical_review: ["Awaiting clinical review", "వైద్య సమీక్ష కోసం వేచి ఉంది"],
+    aiInconsistent: ["Possible inconsistency in this generated AI text. Review the original photograph independently before recording an assessment.", "ఈ AI వచనంలో పరస్పర విరుద్ధమైన వివరాలు ఉండవచ్చు. అభిప్రాయం నమోదు చేసే ముందు అసలు ఫోటోను స్వతంత్రంగా పరిశీలించండి."]
   };
   const definitions = {
     diagnostics: { endpoint: "/api/diagnostics", add: "addDiagnostic", fields: [
@@ -92,6 +93,9 @@
   function userKey() { const user = app()?.user; return user ? `${user.id || user.username}:${user.role}` : ""; }
   function language() { return app()?.language === "te" ? 1 : 0; }
   function tr(key) { return words[key]?.[language()] ?? String(key ?? ""); }
+  function appendInferenceWarning(target, inference) {
+    if (inference?.inconsistent === true || inference?.output_warning) target.append(label("p", "aiInconsistent", { class: "care-ai-warning", role: "alert" }));
+  }
   function valueLabel(value, field) {
     if (value == null || value === "") return tr("noValue");
     if (field === "disposition" && value === "accepted") return tr("aiAccepted");
@@ -271,6 +275,7 @@
       if (!record) { editor.output.append(label("p", "noSavedOutput", { class: "care-form-help" })); return; }
       editor.output.append(label("h4", "savedOutput"), el("p", { class: "care-record-provenance" }, `${record.model || ""} · ${dateText(record.created_at)} · ${tr("inference")}: ${record.inference_audit_id}`));
       if (record.notice) editor.output.append(el("p", { class: "care-form-help" }, record.notice));
+      appendInferenceWarning(editor.output, record);
       editor.output.append(el("pre", {}, record.text || tr("historicalOutput")));
     }
     async function loadInferences() {
@@ -353,6 +358,7 @@
           const source = el("details", { class: "care-ai-source" });
           source.append(label("summary", "savedOutput"));
           if (record.inference.notice) source.append(el("p", { class: "care-form-help" }, record.inference.notice));
+          appendInferenceWarning(source, record.inference);
           source.append(el("pre", {}, record.inference.text || tr("historicalOutput"))); row.append(source);
         } else if (kind === "ai_reviews" && record.source_status === "historical_text_unavailable") row.append(label("p", "historicalOutput", { class: "care-form-help" }));
         row.append(el("p", { class: "care-record-meta" }, `${tr("recordedBy")}: ${record.clinician_name || tr("unavailable")} · ${dateText(record.created_at)}`));
@@ -442,7 +448,7 @@
         appendFields(article, record, fields);
         if (record.clinician_name) article.append(el("p", {}, `${tr("recordedBy")}: ${record.clinician_name}`));
         if (record.inference_audit_id) article.append(el("p", {}, `${tr("inference")}: ${record.inference_audit_id}`));
-        if (record.inference?.text) { article.append(label("h3", "savedOutput"), el("pre", {}, record.inference.text)); }
+        if (record.inference?.text) { article.append(label("h3", "savedOutput")); appendInferenceWarning(article, record.inference); article.append(el("pre", {}, record.inference.text)); }
         else if (record.source_status === "historical_text_unavailable") article.append(label("p", "historicalOutput"));
         section.append(article);
       }

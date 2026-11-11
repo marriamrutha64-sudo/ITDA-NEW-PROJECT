@@ -18,6 +18,29 @@ import app
 
 
 class AiJobTests(unittest.TestCase):
+    def test_health_assistant_requires_authentication_and_transfer_consent(self):
+        code,_,_=self.request_json(self.client(),"/api/ai/assistant",{"mode":"question","question":"Synthetic"})
+        self.assertEqual(code,401)
+        code,data,_=self.request_json(self.worker,"/api/ai/assistant",{"mode":"question","question":"Synthetic"})
+        self.assertEqual(code,400)
+        self.assertIn("Google",data["error"])
+
+    def test_health_assistant_worker_can_request_education_without_record_write(self):
+        import health_assistant
+        with patch.dict(os.environ,{"AAROGYA_AI_PROVIDER":"gemini"}),patch.object(health_assistant.gemini_runtime,"generate",return_value={"text":"Synthetic educational answer","model":"gemini-test","execution":{"provider":"gemini"},"validated":False}):
+            code,data,_=self.request_json(self.worker,"/api/ai/assistant",{"mode":"question","question":"What is blood pressure?","acknowledge_google_transfer":True})
+        self.assertEqual(code,200)
+        self.assertFalse(data["saved_to_patient_record"])
+        self.assertEqual(data["result"]["text"],"Synthetic educational answer")
+    def test_gemini_transfer_requires_separate_acknowledgement(self):
+        client = self.client()
+        self.request_json(client, "/api/login", {"username": "jobs-doctor", "password": self.password})
+        with patch.dict(os.environ, {"AAROGYA_AI_PROVIDER": "gemini"}), patch.object(app.medgemma_runtime, "analyze") as analyze:
+            code, data, _ = self.request_json(client, "/api/ai/jobs", {"screening_id": "synthetic", "acknowledge_experimental": True})
+            self.assertEqual(code, 400)
+            self.assertIn("Google Gemini", data["error"])
+            analyze.assert_not_called()
+
     @classmethod
     def setUpClass(cls):
         stack = ExitStack()
@@ -166,6 +189,23 @@ class AiJobTests(unittest.TestCase):
         with app.connect() as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM ai_jobs WHERE screening_id=?", (self.screening_id,)).fetchone()[0], 0)
 
+    def test_latest_job_lookup_resumes_only_the_signed_in_clinicians_job(self):
+        status, empty, _ = self.request_json(self.doctor, f"/api/ai/jobs?screening_id={self.screening_id}")
+        self.assertEqual(status, 200)
+        self.assertIsNone(empty["job"])
+        job_id = str(uuid.uuid4())
+        with app.connect() as db:
+            db.execute("INSERT INTO ai_jobs(id,screening_id,created_by,status,created_at) VALUES(?,?,?,'running',?)",
+                       (job_id, self.screening_id, self.user["id"], app.now_iso()))
+        status, own, _ = self.request_json(self.doctor, f"/api/ai/jobs?screening_id={self.screening_id}")
+        self.assertEqual(status, 200)
+        self.assertEqual((own["job"]["id"], own["job"]["status"]), (job_id, "running"))
+        specialist, _ = self.login("jobs-specialist")
+        self.assertIsNone(self.request_json(specialist, f"/api/ai/jobs?screening_id={self.screening_id}")[1]["job"])
+        self.assertEqual(self.request_json(self.worker, f"/api/ai/jobs?screening_id={self.screening_id}")[0], 403)
+        self.assertEqual(self.request_json(self.client(), f"/api/ai/jobs?screening_id={self.screening_id}")[0], 401)
+        self.assertEqual(self.request_json(self.doctor, "/api/ai/jobs?screening_id=")[0], 400)
+
     def test_startup_marks_stale_jobs_interrupted_without_changing_finished_jobs(self):
         ids = {}
         with app.connect() as db:
@@ -195,6 +235,27 @@ class AiJobTests(unittest.TestCase):
         finally:
             with app.connect() as db:
                 db.execute("DROP TRIGGER reject_job_inference")
+
+    def test_legacy_contradiction_is_flagged_on_job_and_history_reads_without_rewriting_source(self):
+        source = ("Visible observations: There is a visible ulcerated lesion on the tongue.\n"
+                  "Unrelated: The image is unrelated.")
+        generated = {**self.generated, "text": source}
+        with patch("app.medgemma_runtime.status", return_value={"available": True}), patch("app.medgemma_runtime.analyze", return_value=generated):
+            status, created, _ = self.request_json(self.doctor, "/api/ai/jobs", self.payload)
+            self.assertEqual(status, 202)
+            job = self.wait_job(created["job"]["id"])
+        self.assertEqual(job["status"], "succeeded")
+        self.assertEqual(job["result"]["text"], source)
+        self.assertTrue(job["result"]["inconsistent"])
+        self.assertTrue(job["result"]["output_warning"])
+        status, history, _ = self.request_json(self.doctor, f"/api/ai/results/{self.screening_id}")
+        self.assertEqual(status, 200)
+        self.assertEqual(history["inferences"][0]["text"], source)
+        self.assertTrue(history["inferences"][0]["inconsistent"])
+        self.assertTrue(history["inferences"][0]["output_warning"])
+        with app.connect() as db:
+            stored = db.execute("SELECT text FROM ai_inferences WHERE screening_id=?", (self.screening_id,)).fetchone()[0]
+        self.assertEqual(stored, source)
 
 
 if __name__ == "__main__":

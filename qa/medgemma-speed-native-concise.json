@@ -1,0 +1,28 @@
+{
+  "checked_at_utc": "2026-11-10T18:44:01.514388+00:00",
+  "input": "Uniform gray 320x320 synthetic image; no patient data",
+  "elapsed_seconds": 246.14,
+  "clinical_validation": false,
+  "result": {
+    "text": "Quality: Low resolution, poor contrast.\nObservations: The image is a grayscale, blurry image. No discernible features are visible.\nLimits: The image is too low resolution to determine any specific details. It is unsuitable for any form of analysis.",
+    "model": "google/medgemma-1.5-4b-it",
+    "model_revision": "91850547d9f0b2fdd21aa7c5f4f3d1a8a52c243b",
+    "validated": false,
+    "truncated": false,
+    "execution": {
+      "mode": "bfloat16",
+      "device": "cpu",
+      "threads": 8,
+      "compute": "native",
+      "prompt_version": "oral-observations-concise-v2",
+      "checkpoint_modified": false,
+      "clinically_validated": false,
+      "load_seconds": 3.62,
+      "generation_seconds": 225.5,
+      "total_seconds": 229.19,
+      "generated_tokens": 51,
+      "preprocess_seconds": 0.06
+    },
+    "notice": "NOT FOR CLINICAL USE. Unvalidated generated observations; clinician review is required. No diagnostic accuracy or confidence is established."
+  }
+}

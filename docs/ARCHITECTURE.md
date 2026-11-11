@@ -14,12 +14,12 @@ flowchart LR
   App --> Jobs[One local background AI job]
   Jobs --> Worker[Separate Python MedGemma worker]
   Worker --> Weights[Verified local model checkpoint]
-  Browser -->|Explicit call join| Jitsi[Jitsi meeting service]
-  Guest[Patient guest browser] -->|WebRTC media| Jitsi
+  Browser -->|Explicit external link| Jitsi[Public Jitsi]
+  Guest[Patient guest browser] -->|Room link and media| Jitsi
   Tunnel[Optional temporary HTTPS tunnel] --> App
 ```
 
-The tunnel forwards application traffic to a loopback backend. Jitsi transports meeting media independently of the application tunnel. The backend provides appointment/room configuration; it does not carry or record the audio/video stream. Public Jitsi is an explicitly selected synthetic-data mode. A private Jitsi installation requires separate infrastructure and configuration.
+The tunnel forwards application traffic to a loopback backend. Public Jitsi transports meeting media independently of the application tunnel. The backend creates an opaque room name for each new appointment; it does not carry or record audio/video, control the microphone, or manage guest admission.
 
 ## Source map
 
@@ -34,7 +34,7 @@ The tunnel forwards application traffic to a loopback backend. Jitsi transports 
 | Care records | `clinical_records.py` | Diagnostic, treatment, escalation, AI-review and actual generated-output records. |
 | Offline upload ingestion | `offline_screenings.py` | Same-worker patient resolution, consent, image checks, idempotency receipts and transactional screening creation. |
 | Experimental AI | `ai_jobs.py`, `medgemma_runtime.py`, `medgemma_worker.py`, `inference_lock.py`, `medgemma-ui.js` | Bounded background jobs, separate local inference process, same-user cross-process model lock, saved genuine text/provenance and clinician-only UI. |
-| Video | `app.js`, `patient-call.html`, `patient-call.js`, `call-diagnostics.js` | Explicit Jitsi join, guest entry, microphone controls and user-requested local media checks. |
+| Video | `app.js`, `patient-call.html`, `patient-call.js` | App-generated opaque Jitsi room and authorized invitation handoff. A patient invitation opens the same public Jitsi room. Jitsi controls audio, camera and admission in its own tab. |
 | PWA | `manifest.json`, `service-worker.js`, `icon.svg` | Standalone browser installation and cached interface/reference assets. No native package or app-store release exists. |
 | Presentation and preview | `open_demo.py`, `share_demo.py`, `deploy/` | Local launch, temporary HTTPS sharing, and an unverified Docker/Caddy preview scaffold. |
 
@@ -62,7 +62,7 @@ The installed checkpoint is `google/medgemma-1.5-4b-it` at the pinned revision d
 
 The browser submits an acknowledged job and polls its durable status. One background job is admitted per server process. The runtime also bounds actual inference concurrency and terminates an overlong worker after 300 seconds. CPU loading/generation may take several minutes and can fail for memory or timeout reasons. No fabricated progress percentage or replacement result is produced. Successful text, generation audit and job success commit together. Incomplete jobs are marked interrupted on application startup; they are not silently resumed.
 
-The current CPU configuration uses the original checkpoint in bfloat16 precision, eight intra-operation threads and one inter-operation thread, with a concise prompt and 96-new-token cap. The CUDA path allows 256 new tokens. No int8 quantization path is shipped. If output reaches its cap without an end token, the runtime returns a truncation flag and a visible incomplete-output notice. Dependency versions are pinned in `requirements-medgemma.txt`. See the dated [verification checkpoint](EVALUATION_READINESS.md#verification-checkpoint-on-10-november-2026) for the earlier timeout, successful final-configuration standalone run and still-pending HTTPS job.
+The CPU configuration retains the original checkpoint in bfloat16 storage, with float32 linear/convolution/attention computation, eight intra-operation threads, one inter-operation thread, a concise prompt and a 96-new-token cap. Float32 temporary weight copies are bounded and attention mask behavior is preserved. `AAROGYA_MEDGEMMA_CPU_COMPUTE=native` selects the earlier arithmetic path; neither mode establishes clinical equivalence or validation. CUDA allows 256 tokens. No int8 quantization or reduced-image-resolution path is shipped. If output reaches its cap without an end token, the runtime marks it incomplete. Pinned dependencies and measured limits are documented in [MedGemma setup](../MEDGEMMA_SETUP.md). The fastest completed office synthetic check took 203.10 seconds end-to-end; sub-minute local inference remains unmet. Historical HTTPS integration succeeded, as recorded in [runtime evidence](../qa/async-ai-runtime-check.json).
 
 The application is designed for one server process per database while using these job admission/recovery mechanisms. A nonblocking OS lock additionally prevents simultaneous model execution by application instances owned by the same OS user and sharing a canonical model path; it does not provide a distributed queue or multi-node job recovery. A production worker queue, warm model service or multi-process scheduler would require additional coordination. The CPU synthetic runtime record demonstrates executable inference only. It provides no clinical accuracy, calibration, safety validation or eligibility evidence.
 
@@ -78,13 +78,13 @@ Offline access does not provide a full copy of existing medical records, clinici
 
 ## Video and media evidence
 
-Private mode uses a separately configured Jitsi domain and room-scoped short-lived JWTs. Public demonstration mode explicitly selects `meet.jit.si`, requires the doctor's own host sign-in and permits guest patient entry. Random room names contain no patient identifiers. Completing/cancelling an appointment restricts subsequent application actions but cannot revoke an already-shared public Jitsi URL or eject participants.
+The server generates a long, opaque Jitsi room name when an authorized clinician schedules a new appointment. The join and patient-invitation actions return the same `https://meet.jit.si/...` URL while the appointment is scheduled. The schedule still labels upcoming and past appointment times. Jitsi opens in a separate tab; the app has no access to that tab's microphone, camera, admission or stream status. Older Google Meet records stay in history but do not redirect to a newly invented Jitsi room. Completing/cancelling an appointment restricts subsequent application actions but cannot revoke an already-shared public link or eject participants.
 
-Current call configuration requests receiving audio and disables Jitsi peer-to-peer mode in favor of its bridge. Call checks inspect available local mute/device/ICE/bitrate information after an explicit action. Unavailable statistics remain labeled unavailable. These controls are troubleshooting aids: a moving microphone meter, local bitrate or speaker test does not prove remote hearing. The reported Android Chrome one-way audio problem remains unverified until a real two-person test confirms spoken audio both ways. No audio recording is implemented.
+Public `meet.jit.si` requires the person starting a room to sign in. A guest can wait until the host enters. Two-way audio and video remain unverified until two people test them on separate devices and confirm speech in each direction. The app does not record audio/video or host the media. Public Jitsi is limited to fictional demonstration data.
 
 ## Hosting and optional storage operations
 
-`share_demo.py` supplies temporary HTTPS access through a Cloudflare tunnel to the local demonstration server. It depends on the host PC and both processes remaining available. `deploy/compose.yaml` supplies Caddy and a persistent application volume, but still runs Python's development HTTP server. That scaffold has not been built/run here and does not include Jitsi, model weights/runtime installation, production backups or clinical infrastructure. Replacing the HTTP handler with a production service requires implementation work, not merely choosing a different command.
+`share_demo.py` supplies temporary HTTPS access through a Cloudflare tunnel to the local demonstration server. It depends on the host PC and both processes remaining available. `deploy/compose.yaml` supplies Caddy and a persistent application volume, but still runs Python's development HTTP server. That scaffold has not been built/run here and does not include a private Jitsi deployment, model weights/runtime installation, production backups or clinical infrastructure. Replacing the HTTP handler with a production service requires implementation work, not merely choosing a different command.
 
 The application does **not** encrypt server database files or uploads at rest. Optional operational protection can be prepared as follows; no such configuration is asserted to be enabled on this workstation:
 
@@ -92,7 +92,7 @@ The application does **not** encrypt server database files or uploads at rest. O
 2. Select an application directory on that volume before starting a new isolated deployment, for example `$env:AAROGYA_DATA_DIR = 'E:\AarogyaDemoData'`. Use the actual verified encrypted mount; that example path itself enables no encryption. Existing databases/uploads need a controlled, consistent migration before switching directories.
 3. Keep secrets in a protected deployment environment. HTTPS protects transport; it does not encrypt stored files or replace account/storage controls. A [Docker volume is persistent storage](https://docs.docker.com/engine/storage/volumes/), so its host backing storage and backups need separately verified protection.
 4. Define an encrypted backup destination, access policy, retention and recovery owner. For a simple consistent demonstration backup, stop the application and AI worker cleanly, then copy the complete data directory to that protected destination. For online database snapshots, use the [SQLite backup API](https://www.sqlite.org/backup.html) and coordinate the uploaded-file snapshot; copying only a live WAL database file is insufficient. No scheduled backup job is supplied.
-5. Restore into a separate isolated directory, verify database integrity and referenced images, and exercise authorized login, records and reports before approving a recovery process. Do not overwrite the active demonstration database during a restore rehearsal.
+5. `backup_data.py` now supplies an operator-run stopped-server copy and isolated restore with manifest, SQLite integrity, foreign-key and referenced-image checks. See the [backup commands and limits](../README.md#backup-and-restore-rehearsal). Exercise authorized login, records and reports against the isolated restore before approving a recovery process. Do not overwrite the active demonstration database during a restore rehearsal. No automatic backup schedule or real deployment recovery rehearsal is claimed.
 
 These are optional deployment steps, not security certification or a claim of HIPAA or other regulatory compliance. Real health information requires an independently reviewed deployment and governance process.
 

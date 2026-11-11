@@ -44,7 +44,6 @@ try {
     $listener.Stop()
 }
 
-$previousProvider = [Environment]::GetEnvironmentVariable('AAROGYA_VIDEO_PROVIDER', 'Process')
 $previousDataDirectory = [Environment]::GetEnvironmentVariable('AAROGYA_DATA_DIR', 'Process')
 $previousSecret = [Environment]::GetEnvironmentVariable('AAROGYA_SESSION_SECRET', 'Process')
 $sessionBytes = New-Object byte[] 48
@@ -56,21 +55,19 @@ try {
 }
 
 try {
-    $env:AAROGYA_VIDEO_PROVIDER = 'public_demo'
     $env:AAROGYA_DATA_DIR = $DataDirectory
     $env:AAROGYA_SESSION_SECRET = [Convert]::ToBase64String($sessionBytes)
-    Write-Host 'Starting synthetic-data video demo using public meet.jit.si.'
+    Write-Host 'Starting synthetic-data video demo with Jitsi meetings.'
     Write-Host 'Use fictional patient details only. Do not share real health information.'
     Write-Host "Data directory: $DataDirectory"
     Write-Host "Open http://127.0.0.1:$Port and sign in with an account in that data directory."
-    Write-Host 'The doctor must sign in to Jitsi in the browser to create the meeting.'
+    Write-Host 'The doctor opens the generated Jitsi room in a separate tab and signs in to start it.'
     Write-Host 'Press Ctrl+C to stop this local application server.'
     & $PythonPath (Join-Path $repositoryRoot 'app.py') --host 127.0.0.1 --port $Port
     if ($LASTEXITCODE -ne 0) {
         throw "The application server exited with code $LASTEXITCODE."
     }
 } finally {
-    [Environment]::SetEnvironmentVariable('AAROGYA_VIDEO_PROVIDER', $previousProvider, 'Process')
     [Environment]::SetEnvironmentVariable('AAROGYA_DATA_DIR', $previousDataDirectory, 'Process')
     [Environment]::SetEnvironmentVariable('AAROGYA_SESSION_SECRET', $previousSecret, 'Process')
 }

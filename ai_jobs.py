@@ -1,12 +1,15 @@
 """One bounded background AI job, with durable status and actual output provenance."""
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
 import threading
 import uuid
 
 import clinical_records
+import medgemma_runtime
+import role_visibility
 
 
 _active = threading.Lock()
@@ -37,6 +40,8 @@ def init_schema(db):
 def _job(row):
     record = dict(row)
     record["result"] = json.loads(record.pop("result_json")) if record.get("result_json") else None
+    if isinstance(record["result"], dict):
+        record["result"].update(medgemma_runtime.assess_output(record["result"].get("text")))
     record.pop("result_json", None)
     return record
 
@@ -87,6 +92,27 @@ def _allowed(handler, user):
 
 
 def handle_get(handler, user, path, runtime):
+    if path == "/api/ai/jobs":
+        if not _allowed(handler, user):
+            return True
+        from urllib.parse import parse_qs, urlparse
+        screening_ids = parse_qs(urlparse(handler.path).query).get("screening_id", [])
+        if len(screening_ids) != 1 or not screening_ids[0] or len(screening_ids[0]) > 40:
+            handler.json({"error": "Choose a valid screening."}, 400)
+            return True
+        # Resume only the signed-in clinician's own job. Other clinicians may
+        # access saved inferences through the separate clinical result route.
+        with runtime.connect() as db:
+            if not role_visibility.can_view_screening(db, user, screening_ids[0]):
+                handler.json({"error": "Screening not found."}, 404)
+                return True
+            row = db.execute(
+                "SELECT * FROM ai_jobs WHERE screening_id=? AND created_by=? "
+                "ORDER BY created_at DESC,rowid DESC LIMIT 1",
+                (screening_ids[0], user["id"]),
+            ).fetchone()
+        handler.json({"job": _job(row) if row else None})
+        return True
     match = re.fullmatch(r"/api/ai/jobs/([^/]+)", path)
     if not match:
         return False
@@ -95,7 +121,8 @@ def handle_get(handler, user, path, runtime):
     job_id = match.group(1)
     with runtime.connect() as db:
         row = db.execute("SELECT * FROM ai_jobs WHERE id=?", (job_id,)).fetchone() if len(job_id) <= 40 else None
-    if not row or (row["created_by"] != user["id"] and user["role"] != "admin"):
+        visible = bool(row and role_visibility.can_view_screening(db, user, row["screening_id"]))
+    if not visible or (row["created_by"] != user["id"] and user["role"] != "admin"):
         handler.json({"error": "AI job not found."}, 404)
         return True
     handler.json({"job": _job(row)})
@@ -110,9 +137,13 @@ def handle_post(handler, user, path, runtime):
     data = handler.body()
     if data.get("acknowledge_experimental") is not True:
         raise ValueError("Acknowledge that generated observations are experimental and unvalidated.")
+    if os.environ.get("AAROGYA_AI_PROVIDER", "local") == "gemini" and data.get("acknowledge_google_transfer") is not True:
+        raise ValueError("Confirm sending the screening photograph to Google Gemini before requesting analysis.")
     screening_id = runtime.clean(data, "screening_id", 40, required=True)
     with runtime.connect() as db:
         row = db.execute("SELECT image_name FROM screenings WHERE id=?", (screening_id,)).fetchone()
+        if row and not role_visibility.can_view_screening(db, user, screening_id):
+            row = None
     if not row:
         handler.json({"error": "Screening not found."}, 404)
         return True

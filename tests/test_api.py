@@ -23,15 +23,9 @@ class ApiFlowTests(unittest.TestCase):
         app.DB_PATH = app.DATA_DIR / "test.sqlite3"
         cls.original_secret = os.environ.get("AAROGYA_SESSION_SECRET")
         os.environ["AAROGYA_SESSION_SECRET"] = "test-only-secret-value-12345678901234567890"
-        cls.original_jitsi = {
-            key: os.environ.get(key)
-            for key in ("AAROGYA_JITSI_DOMAIN", "AAROGYA_JITSI_APP_ID", "AAROGYA_JITSI_APP_SECRET")
-        }
-        for key in cls.original_jitsi:
-            os.environ.pop(key, None)
-
         app.create_user("fieldworker", "synthetic-password-123", "health_worker", "Test Worker")
         app.create_user("admin", "synthetic-admin-123", "admin", "Test Admin")
+        app.create_user("doctor", "synthetic-doctor-123", "medical_officer", "Test Doctor")
         cls.server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
@@ -47,11 +41,6 @@ class ApiFlowTests(unittest.TestCase):
             os.environ.pop("AAROGYA_SESSION_SECRET", None)
         else:
             os.environ["AAROGYA_SESSION_SECRET"] = cls.original_secret
-        for key, value in cls.original_jitsi.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
         cls.temp_dir.cleanup()
 
     def client(self):
@@ -102,7 +91,7 @@ class ApiFlowTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(dashboard["patients"], 1)
 
-    def test_session_role_and_video_unconfigured_behavior(self):
+    def test_session_role_and_jitsi_configuration(self):
         worker, _ = self.login("fieldworker", "synthetic-password-123")
         status, session = self.request_json(worker, "/api/session")
         self.assertEqual(status, 200)
@@ -111,9 +100,13 @@ class ApiFlowTests(unittest.TestCase):
         self.assertEqual(status, 403)
 
         admin, _ = self.login("admin", "synthetic-admin-123")
-        status, consultations = self.request_json(admin, "/api/consultations")
+        status, _ = self.request_json(admin, "/api/consultations")
         self.assertEqual(status, 200)
-        self.assertFalse(consultations["configured"])
+        doctor, _ = self.login("doctor", "synthetic-doctor-123")
+        status, consultations = self.request_json(doctor, "/api/consultations")
+        self.assertEqual(status, 200)
+        self.assertTrue(consultations["configured"])
+        self.assertEqual(consultations["provider"], "jitsi")
 
     def test_ai_endpoint_never_fabricates_an_unavailable_prediction(self):
         client, _ = self.login("fieldworker", "synthetic-password-123")
@@ -134,9 +127,9 @@ class ApiFlowTests(unittest.TestCase):
                 self.assertEqual(response.status, 200)
                 self.assertGreater(len(response.read()), 0)
 
-    def test_public_demo_http_flow_acknowledgement_invitation_and_completion(self):
-        client, _ = self.login("admin", "synthetic-admin-123")
-        with patch.dict(os.environ, {"AAROGYA_VIDEO_PROVIDER": "public_demo"}):
+    def test_jitsi_http_flow_invitation_and_completion(self):
+        client, _ = self.login("doctor", "synthetic-doctor-123")
+        with self.subTest(provider="jitsi"):
             status, patient = self.request_json(client, "/api/patients", {
                 "name": "Synthetic Video Demonstration", "age": 42,
                 "village": "Synthetic Video Village", "phone": "+1 555 0199", "consent": True,
@@ -150,20 +143,18 @@ class ApiFlowTests(unittest.TestCase):
             consultation_id = appointment["consultation"]["id"]
             status, listing = self.request_json(client, "/api/consultations")
             self.assertEqual(status, 200)
-            self.assertEqual(listing["provider"], "public_demo")
-            status, _ = self.request_json(client, f"/api/consultations/{consultation_id}/join", {}, "POST")
-            self.assertEqual(status, 400)
-            status, joining = self.request_json(client, f"/api/consultations/{consultation_id}/join", {"acknowledge_demo": True}, "POST")
+            self.assertEqual(listing["provider"], "jitsi")
+            status, joining = self.request_json(client, f"/api/consultations/{consultation_id}/join", {}, "POST")
             self.assertEqual(status, 200)
-            self.assertEqual(joining["domain"], "meet.jit.si")
+            self.assertRegex(joining["meeting_url"], r"^https://meet\.jit\.si/[0-9a-f]{48}$")
             self.assertNotIn("jwt", joining)
-            status, invitation = self.request_json(client, f"/api/consultations/{consultation_id}/invite", {"acknowledge_demo": True}, "POST")
+            status, invitation = self.request_json(client, f"/api/consultations/{consultation_id}/invite", {}, "POST")
             self.assertEqual(status, 200)
-            self.assertEqual(invitation["guest_url"], "https://meet.jit.si/" + joining["room_name"])
+            self.assertEqual(invitation["guest_url"], joining["meeting_url"])
             self.assertNotIn(patient["patient"]["id"], invitation["guest_url"])
             status, _ = self.request_json(client, f"/api/consultations/{consultation_id}/complete", {}, "POST")
             self.assertEqual(status, 200)
-            status, _ = self.request_json(client, f"/api/consultations/{consultation_id}/join", {"acknowledge_demo": True}, "POST")
+            status, _ = self.request_json(client, f"/api/consultations/{consultation_id}/join", {}, "POST")
             self.assertEqual(status, 409)
 
 

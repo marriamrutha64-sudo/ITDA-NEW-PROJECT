@@ -41,7 +41,7 @@ class RejectedPostTests(unittest.TestCase):
         cls.addClassCleanup(stack.close)
         directory = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="aarogya-rejection-test-")))
         stack.enter_context(patch.multiple(app, DATA_DIR=directory, UPLOAD_DIR=directory / "uploads", DB_PATH=directory / "test.sqlite3"))
-        stack.enter_context(patch.dict(os.environ, {"AAROGYA_PUBLIC_DEMO": "0", "AAROGYA_VIDEO_PROVIDER": "public_demo"}))
+        stack.enter_context(patch.dict(os.environ, {"AAROGYA_PUBLIC_DEMO": "0"}))
         cls.server = app.ThreadingHTTPServer(("127.0.0.1", 0), ObservedHandler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()

@@ -1,0 +1,29 @@
+{
+  "checked_at_utc": "2026-11-10T20:54:44.124Z",
+  "scope": "Microphone acquisition on public Jitsi home page, not a meeting or two-device audio test",
+  "browser": "Isolated headless Microsoft Edge",
+  "origin": "https://meet.jit.si",
+  "permission": "audioCapture granted to isolated meet.jit.si origin through DevTools",
+  "device": "Default - Microphone (3- Realtek(R) Audio)",
+  "secure_context": true,
+  "audio_track_count": 1,
+  "track_state_on_acquisition": "live",
+  "track_muted_on_acquisition": false,
+  "track_state_after_immediate_stop": "ended",
+  "recording_or_storage": false,
+  "meeting_joined": false,
+  "remote_hearing_verified": false,
+  "automated_control_plane": {
+    "python_command": "python -m unittest tests.test_video_dryrun tests.test_api tests.test_google_meet tests.test_package_office_demo -q",
+    "python_result": "18 run, 17 passed, 1 skipped",
+    "javascript_command": "node --test tests/video-ui.test.cjs tests/patient-call.test.cjs",
+    "javascript_result": "9 passed",
+    "source_package_paths": "113 selected; Jitsi QA included; historical Meet QA excluded"
+  },
+  "not_verified": [
+    "Speech level or audio quality",
+    "User's normal browser profile permissions",
+    "Jitsi room media transport",
+    "Doctor-to-patient and patient-to-doctor hearing"
+  ]
+}

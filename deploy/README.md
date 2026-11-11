@@ -8,10 +8,17 @@ Install Docker Desktop (Windows/macOS) or Docker Engine with the Docker Compose 
 
 ## Local preview
 
-Run these commands from this `deploy` directory. Create a private environment file and generate a fresh session secret; do not commit `.env`.
+Work from this `deploy` directory. Create a new private `.env` file with the following values; keep an existing configured file instead of overwriting it. Environment files/templates are excluded from the source-only office archive, so this setup does not depend on `.env.example`.
+
+```dotenv
+AAROGYA_SESSION_SECRET=replace-with-a-fresh-generated-secret
+DOMAIN=localhost
+BIND_ADDRESS=127.0.0.1
+```
+
+Generate a fresh session secret; do not commit `.env`:
 
 ```powershell
-Copy-Item .env.example .env
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
@@ -37,4 +44,4 @@ Stop the preview with `docker compose down`. Removing volumes with `docker compo
 
 For an internet-accessible demo, use a host you control, set `DOMAIN` to its real DNS name and `BIND_ADDRESS=0.0.0.0` in `.env`, point the DNS record at the host, and allow inbound TCP ports 80/443 and UDP 443. Caddy will request and renew HTTPS certificates. This makes the demo publicly reachable; never enter real health information. Use unique credentials and keep `.env` private.
 
-No Jitsi/video service is included in this compose stack.
+No Jitsi media service or host account is included in this compose stack. New appointments use public `meet.jit.si` in an external tab; the host signs in there. Public calls are for synthetic demonstration data only.

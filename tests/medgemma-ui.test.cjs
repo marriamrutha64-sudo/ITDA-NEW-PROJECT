@@ -8,6 +8,51 @@ const source = fs.readFileSync(path.join(__dirname, "..", "medgemma-ui.js"), "ut
 const clinician = { id: "doctor-1", username: "qa-doctor", role: "medical_officer" };
 const other = { id: "doctor-2", username: "other-doctor", role: "specialist" };
 
+test("older truncated results are explicitly marked unusable as a partial review", async () => {
+  const h=await harness({responder:async(url,options,fallback)=>url.startsWith("/api/ai/results/")?{inferences:[{notice:"Experimental",text:"Partial review",runtime:{truncated:true}}]}:fallback(url,options)});
+  assert.equal(h.warning().hidden,false);
+  assert.match(h.warning().textContent,/Incomplete saved AI output/);
+  assert.match(h.warning().textContent,/request a new analysis/);
+});
+
+test("Gemini image transfer requires explicit confirmation and sends acknowledgement", async () => {
+  for(const consent of [false,true]) {
+    const h=await harness({consent,responder:async(url,options,fallback)=>url==="/api/health"?{ai:{available:true,provider:"gemini"}}:fallback(url,options)});
+    await h.click();
+    assert.match(h.confirmations[0],/Send this screening photograph to Google Gemini/);
+    const sent=h.requests.filter(r=>r.url==="/api/ai/jobs"&&r.options?.method==="POST");
+    assert.equal(sent.length,consent?1:0);
+    if(consent)assert.equal(JSON.parse(sent[0].options.body).acknowledge_google_transfer,true);
+  }
+});
+
+test("temporary polling failure reconnects to the same job without duplicate submission", async () => {
+  let polls=0;
+  const h=await harness({responder:async(url,options,fallback)=>{
+    if(url==="/api/ai/jobs/job-1" && ++polls===1)throw new Error("Network disconnected");
+    return fallback(url,options);
+  }});
+  const running=h.click();await flush();
+  assert.match(h.output().textContent,/Reconnecting/);
+  assert.equal(h.button().disabled,true);
+  await h.tick();await running;
+  assert.match(h.output().textContent,/Synthetic observations/);
+  assert.equal(h.requests.filter(r=>r.url==="/api/ai/jobs"&&r.options?.method==="POST").length,1);
+});
+
+test("repeated connection failures leave a reconnect instruction and no fabricated result", async () => {
+  const h=await harness({responder:async(url,options,fallback)=>{
+    if(url==="/api/ai/jobs/job-1")throw new Error("Network disconnected");
+    return fallback(url,options);
+  }});
+  const running=h.click();await flush();
+  for(let i=0;i<4;i++)await h.tick();
+  await running;
+  assert.match(h.output().textContent,/server job may still be running/);
+  assert.deepEqual(h.emitted,[]);
+  assert.equal(h.requests.filter(r=>r.url==="/api/ai/jobs"&&r.options?.method==="POST").length,1);
+});
+
 async function flush() { for (let index = 0; index < 30; index++) await Promise.resolve(); }
 function deferred() {
   let resolve, reject;
@@ -36,6 +81,7 @@ async function harness({ user = clinician, available = true, busy = false, conse
     if (url === "/api/health") return { ai: { available, busy } };
     if (url.startsWith("/api/ai/results/")) return { inferences: [] };
     if (url === "/api/session") return { authenticated: Boolean(state.user), user: state.user && { ...state.user } };
+    if (url.startsWith("/api/ai/jobs?")) return { job: null };
     if (url === "/api/ai/jobs" && options?.method === "POST") return { job: { id: "job-1" } };
     if (url.startsWith("/api/ai/jobs/")) return { job: { status: "succeeded", result: { notice: "Experimental", text: "Synthetic observations" } } };
     throw new Error("Unexpected request: " + url);
@@ -62,6 +108,9 @@ async function harness({ user = clinician, available = true, busy = false, conse
     state, row, requests, confirmations, emitted, toasts, timeouts,
     button: () => row.children.find(child => child.tag === "button"),
     output: () => row.children.find(child => child.tag === "pre"),
+    warning: () => row.children.find(child => child.className === "ai-conflict-note"),
+    meta: () => row.children.find(child => child.className === "ai-source-meta"),
+    languageClick: () => elements.languageButton.listeners.get("click")(),
     click() { const button = this.button(); if (!button.disabled && !button.hidden) return button.listeners.get("click")(); },
     forceClick() { return this.button().listeners.get("click")(); },
     enhance() { observers.find(observer => observer.target === list).callback(); },
@@ -86,6 +135,46 @@ test("clinician job uses the opaque screening ID, explicit acknowledgement and p
   assert.equal(h.confirmations.length, 1);
   assert.match(h.output().textContent, /Experimental\n\nSynthetic observations/);
   assert.deepEqual(h.emitted, ["aarogya-ai-saved"]);
+});
+
+test("contradictory saved output is visibly flagged without rewriting its original text", async () => {
+  const generated = "Image quality: The image is clear.\nVisible observations: An ulcerated lesion is visible on the tongue.\nUnrelated: The image is unrelated.";
+  const h = await harness({ responder: async (url, options, fallback) => url.startsWith("/api/ai/results/")
+    ? { inferences: [{ notice: "Unvalidated observations", text: generated }] } : fallback(url, options) });
+  assert.equal(h.warning().hidden, false);
+  assert.equal(h.warning().role, "alert");
+  assert.match(h.warning().textContent, /Possible conflicting AI statements/);
+  assert.match(h.meta().textContent, /Saved experimental AI output/);
+  assert.match(h.output().textContent, /Unrelated: The image is unrelated/);
+  assert.match(h.output().textContent, /ulcerated lesion/);
+  h.state.language = "te";
+  h.languageClick();
+  assert.equal(h.warning().hidden, false);
+  assert.match(h.warning().textContent, /పరస్పర విరుద్ధమైన/);
+  assert.match(h.meta().textContent, /సేవ్ చేసిన/);
+});
+
+test("a consistent saved result does not receive a contradiction notice", async () => {
+  const h = await harness({ responder: async (url, options, fallback) => url.startsWith("/api/ai/results/")
+    ? { inferences: [{ notice: "Unvalidated observations", text: "Visible observations: An area of the tongue is visible." }] } : fallback(url, options) });
+  assert.equal(h.warning().hidden, true);
+  assert.equal(h.warning().textContent, "");
+});
+
+test("an explicitly negative oral-anatomy statement is not flagged as a contradiction", async () => {
+  const generated = "Observations: No tongue or teeth are visible.\nUnrelated: The image is unrelated.";
+  const h = await harness({ responder: async (url, options, fallback) => url.startsWith("/api/ai/results/")
+    ? { inferences: [{ notice: "Unvalidated observations", text: generated, inconsistent: false }] } : fallback(url, options) });
+  assert.equal(h.warning().hidden, true);
+  assert.equal(h.output().textContent.includes(generated), true);
+});
+
+test("runtime warning metadata is visible even when no specific contradiction phrase is present", async () => {
+  const h = await harness({ responder: async (url, options, fallback) => url.startsWith("/api/ai/results/")
+    ? { inferences: [{ notice: "Unvalidated observations", text: "Ambiguous generated content", output_warning: "Inconsistent result" }] } : fallback(url, options) });
+  assert.equal(h.warning().hidden, false);
+  assert.match(h.warning().textContent, /potentially unreliable/);
+  assert.match(h.output().textContent, /Ambiguous generated content/);
 });
 
 test("declining experimental review or unavailable model does not start a job", async () => {
@@ -193,12 +282,58 @@ test("pending analysis polls on a bounded timer and reports backend failures wit
   const running = h.click();
   await flush();
   assert.equal(h.timeouts.size, 1);
+  assert.match(h.output().textContent, /running.*\d+s elapsed/);
+  assert.match(h.output().textContent, /saved automatically/);
   assert.equal([...h.timeouts.values()][0].delay, 2000);
   await h.tick();
   await running;
   assert.match(h.output().textContent, /Synthetic inference failure/);
   assert.deepEqual(h.emitted, []);
   assert.equal(h.button().disabled, false);
+});
+
+test("reopening saved inference shows its recorded model time without starting another job", async () => {
+  const h = await harness({ responder: async (url, options, fallback) => url.startsWith("/api/ai/results/")
+    ? { inferences: [{ notice: "Experimental", text: "Previously generated synthetic output", model: "google/medgemma-1.5-4b-it", runtime: { execution: { total_seconds: 12.2 } } }] }
+    : fallback(url, options) });
+  assert.match(h.output().textContent, /Previously generated synthetic output/);
+  assert.match(h.meta().textContent, /Model processing time: 12s/);
+  assert.match(h.meta().textContent, /Source: local google\/medgemma-1\.5-4b-it/);
+  assert.match(h.meta().textContent, /reopening does not run the model again/);
+  assert.equal(h.requests.filter(item => item.url === "/api/ai/jobs").length, 0);
+});
+
+test("reopening a running job resumes its saved ID without creating a second inference", async () => {
+  const running = deferred();
+  let polls = 0;
+  const h = await harness({ responder: async (url, options, fallback) => {
+    if (url.startsWith("/api/ai/jobs?")) return { job: { id: "saved-job", status: "running" } };
+    if (url === "/api/ai/jobs/saved-job") return ++polls === 1
+      ? { job: { status: "running" } } : running.promise;
+    return fallback(url, options);
+  } });
+  assert.equal(h.requests.filter(item => item.url === "/api/ai/jobs" && item.options?.method === "POST").length, 0);
+  assert.match(h.output().textContent, /running/);
+  assert.equal(h.button().disabled, true);
+  await h.tick();
+  running.resolve({ job: { status: "succeeded", result: { notice: "Saved advisory", text: "Persisted synthetic result" } } });
+  await flush();
+  assert.match(h.output().textContent, /Persisted synthetic result/);
+  assert.equal(h.button().disabled, false);
+  assert.equal(h.requests.filter(item => item.url === "/api/ai/jobs" && item.options?.method === "POST").length, 0);
+});
+
+test("a late job lookup from the previous account cannot reveal or resume its result", async () => {
+  const oldLookup = deferred();
+  let lookups = 0;
+  const h = await harness({ responder: async (url, options, fallback) => url.startsWith("/api/ai/jobs?")
+    ? (++lookups === 1 ? oldLookup.promise : { job: null }) : fallback(url, options) });
+  h.state.user = { ...other };
+  h.enhance();
+  oldLookup.resolve({ job: { id: "old-private-job", status: "running" } });
+  await flush();
+  assert.equal(h.requests.filter(item => item.url === "/api/ai/jobs/old-private-job").length, 0);
+  assert.doesNotMatch(h.output().textContent, /old-private-job/);
 });
 
 test("a slow saved-history response cannot replace a newer completed inference", async () => {

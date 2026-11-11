@@ -142,12 +142,13 @@ test("AI override submits the selected genuine saved inference reference", async
     if (url === "/api/patients") return { patients: h.patients };
     if (url === "/api/patients/p1") return h.data.p1.detail;
     if (url.endsWith("/journey")) return h.data.p1.journey;
-    if (url.startsWith("/api/ai/results/")) return { inferences: [{ id: "real-result", text: "<script>unsafe text</script>", model: "MedGemma", inference_audit_id: 17, created_at: "2026-11-10T12:00:00Z" }] };
+    if (url.startsWith("/api/ai/results/")) return { inferences: [{ id: "real-result", text: "<script>unsafe text</script>", model: "MedGemma", inconsistent: true, inference_audit_id: 17, created_at: "2026-11-10T12:00:00Z" }] };
   });
   await h.open("p1");
   const screening = h.get("care-ai_reviews-screening_id"); screening.value = "screen-p1"; await screening.fire("change");
   assert.equal(h.get("care-ai-inference").value, "17");
   assert.match(h.get("care-ai_reviews-form").textContent, /<script>unsafe text<\/script>/);
+  assert.match(h.get("care-ai_reviews-form").textContent, /Possible inconsistency/);
   assert.equal(h.get("care-ai_reviews-form").querySelectorAll("script").length, 0);
   h.get("care-ai_reviews-disposition").value = "disagreed";
   h.get("care-ai_reviews-reason").value = "Advisory observation lacks evidence";
@@ -204,12 +205,15 @@ test("print requires explicit confirmation and safely renders patient-provided t
   const print = declined.get("careJourney").querySelectorAll("button").find(button => button.textContent === "Print patient summary");
   await print.fire("click"); assert.equal(declined.prints, 0); assert.equal(declined.document.getElementById("carePrintReport"), null);
   const h = makeHarness(); h.data.p1.detail.patient.name = "<img src=x onerror=alert(1)>";
+  h.data.p1.journey.ai_reviews = [{ id: "review-1", disposition: "disagreed", clinician_name: "Doctor", created_at: "2026-11-10T12:00:00Z", screening_id: "screen-p1", inference_audit_id: 17, inference: { text: "Original contradictory output", inconsistent: true } }];
   await h.open("p1"); assert.equal(h.prints, 0);
   await h.get("careJourney").querySelectorAll("button").find(button => button.textContent === "Print patient summary").fire("click");
   assert.equal(h.prints, 1); assert.equal(h.confirmations.length, 1);
   const report = h.get("carePrintReport");
   assert.match(report.textContent, /<img src=x onerror=alert\(1\)>/); assert.equal(report.querySelectorAll("img").length, 0);
   assert.match(report.textContent, /AI output is advisory only/);
+  assert.match(report.textContent, /Possible inconsistency/);
+  assert.match(report.textContent, /Original contradictory output/);
   h.afterPrint(); assert.equal(h.document.getElementById("carePrintReport"), null);
 });
 

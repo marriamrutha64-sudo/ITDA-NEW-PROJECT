@@ -17,7 +17,7 @@ The public demo requires same-origin POST requests and uses signed Secure/HttpOn
 ## Present the workflow
 
 1. Use `qa-doctor` to show the fictional patient, generated screening image, clinical review, referral, follow-up and consultation scheduling.
-2. Schedule a consultation for now and join. Complete the public Jitsi host sign-in yourself. Copy the guest room link to a second device and verify media in both directions. Jitsi media runs separately from the application tunnel.
+2. Schedule a new consultation for a fictional patient and open its generated Jitsi room in a separate tab. The doctor signs in to Jitsi and enters first. Copy the same room invitation to a second device and verify spoken audio in both directions. Jitsi media runs separately from the application tunnel.
 3. Use `qa-admin` for the audit log.
 4. Use `qa-worker` for offline registration drafts and manual sync. Each device/browser/HTTPS hostname has its own vault; prepare it online first.
 5. MedGemma is installed locally and passed a synthetic runtime check. Experimental observations remain unvalidated for oral screening. The generated DEMO image is nonclinical and must not be presented as model accuracy evidence.

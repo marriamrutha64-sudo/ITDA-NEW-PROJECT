@@ -1,0 +1,60 @@
+{
+  "checked_at_utc": "2026-11-10T18:48:40.629342+00:00",
+  "host": {
+    "cpu": "Intel Core i5-13420H",
+    "ram_gb": 16,
+    "cuda_available": false
+  },
+  "input": "Uniform gray synthetic image; no patient photograph",
+  "clinical_validation": false,
+  "selected": {
+    "cpu_compute": "float32",
+    "stored_weights": "original bfloat16",
+    "prompt_version": "oral-observations-concise-v2",
+    "end_to_end_seconds": 203.1,
+    "tokens": 51,
+    "truncated": false,
+    "evidence": "medgemma-speed-attention-check.json"
+  },
+  "control": {
+    "cpu_compute": "native",
+    "prompt_version": "oral-observations-concise-v2",
+    "end_to_end_seconds": 246.14,
+    "tokens": 51,
+    "truncated": false,
+    "same_output_text": true,
+    "evidence": "medgemma-speed-native-concise.json"
+  },
+  "historical_https_check": {
+    "end_to_end_seconds": 224.73,
+    "tokens": 79,
+    "different_prompt": true,
+    "evidence": "async-ai-runtime-check.json"
+  },
+  "rejected": [
+    {
+      "candidate": "float32 linear arithmetic only",
+      "seconds": 294.09,
+      "reason": "Slower than completed selected candidate",
+      "evidence": "medgemma-speed-check.json"
+    },
+    {
+      "candidate": "selective text-MLP dynamic int8",
+      "completed": false,
+      "reason": "Aborted after process private committed memory exceeded30GB on16GB host; never integrated"
+    },
+    {
+      "candidate": "float32 vision only",
+      "completed": false,
+      "reason": "Aborted after more than212 seconds without a result; already slower than selected completed candidate"
+    }
+  ],
+  "limits": [
+    "Single runs, not a controlled clinical benchmark; load/thermal effects vary",
+    "Sub-minute inference was not achieved",
+    "Full original image preprocessing retained; no reduced-resolution shortcut",
+    "No cloud inference, no uploaded patient images, no fabricated replacement results",
+    "Model-loading costs about5s; generation dominates latency",
+    "Saved source can reopen immediately without another generation; this is not live inference"
+  ]
+}
