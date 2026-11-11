@@ -1,0 +1,10 @@
+{
+  "synthetic_only": true,
+  "completed": true,
+  "prompt_version": "oral-review-support-v1",
+  "model": "gemini-3.6-flash",
+  "seconds": 9.61,
+  "truncated": false,
+  "text": "**Possible conditions:**\nInsufficient evidence. No oral tissues or clinical features are visible to formulate a differential diagnosis.\n\n**Severity:**\nCannot be determined from a photograph alone. No visible anatomical features can be evaluated in this image.\n\n**Review priority:**\nUrgency cannot be assessed due to the lack of visible oral structures. An uninformative image does not rule out clinical concerns or symptoms.\n\n**Next step:**\nA direct clinician visual and tactile examination paired with a comprehensive history. Persistent sores or red/white patches lasting over two weeks warrant professional dental or medical review.\n\n**Ask about:**\n* What is the duration of any current lesion or symptom?\n* Is there any associated pain or bleeding?\n* Has there been any recent progression or change?\n* Do you have a history of tobacco or areca nut use?\n* Are you experiencing any swallowing or breathing symptoms?\n\n**Urgent warning signs:**\nDifficulty breathing, inability to swallow saliva, or rapidly increasing mouth or neck swelling require emergency assessment.",
+  "clinically_validated": false
+}

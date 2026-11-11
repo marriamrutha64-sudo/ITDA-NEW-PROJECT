@@ -1,0 +1,14 @@
+[
+  {
+    "mode": "question",
+    "error": "Gemini request failed (HTTP 503). No result was saved."
+  },
+  {
+    "mode": "report",
+    "model": "gemini-3.6-flash",
+    "seconds": 12.42,
+    "truncated": false,
+    "text": "### Plain-language summary\nThis document shows a single blood sugar (glucose) test result. Because this is labeled a fictional teaching report and lacks patient history, dates, and fasting status, it cannot be used to make clinical conclusions about an individual's health.\n\n### Reported results\n* **Glucose:** \"105 mg/dL\" (Reference interval: \"70-99 mg/dL\") \u2014 **High** based strictly on the provided report's range.\n* **Fasting status:** \"not recorded\"\n* **Section/Page:** Not specified in the source text.\n\n### What the findings may mean\nGlucose is the primary sugar in the bloodstream that provides energy to body cells. The reported value of 105 mg/dL is slightly above the report's upper limit of 99 mg/dL. \n\nAn isolated lab result is **not a diagnosis**. The significance of this number depends entirely on missing context:\n* **If fasting** (no food or drink except water for at least 8 hours): A result of 105 mg/dL is slightly elevated and might prompt a clinician to check for early blood sugar imbalances, such as prediabetes.\n* **If non-fasting** (eaten recently): Blood sugar naturally rises after eating, so 105 mg/dL could be completely typical.\n\n### Follow-up and urgency\n* **Urgency:** An isolated glucose level of 105 mg/dL is not a medical emergency. However, seek immediate emergency medical care if accompanied by severe symptoms like confusion, extreme weakness, vomiting, deep/rapid breathing, or loss of consciousness.\n* **Next steps:** A clinician must perform a physical examination and consider your full medical history. They may recommend repeat testing under strictly controlled fasting conditions or order an HbA1c blood test (which measures average blood sugar over two to three months). Do not alter your diet, medications, or health routine without professional guidance.\n\n### Questions for the clinician\n* Does this result mean I need to repeat the test while strictly fasting?\n* Would an HbA1c test be helpful to look at my long-term blood sugar levels?\n* How does my overall health profile affect how we interpret this number?",
+    "synthetic_only": true
+  }
+]
