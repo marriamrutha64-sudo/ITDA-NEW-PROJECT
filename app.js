@@ -96,7 +96,18 @@ async function api(path, options={}) {
   if (!response.ok) { if (response.status===401 && path!=="/api/login") showLogin(); const error=new Error(data.error||t("loadError")); error.status=response.status; throw error; }
   return data;
 }
-function showLogin() { closeConsultationCall(); for(const id of ["patientDialog","patientRecordDialog","referenceImageDialog"]) {const dialog=$(id);if(dialog?.open)dialog.close();} const record=$("patientRecordContent");if(record)record.replaceChildren(); if(window.OfflineVault) window.OfflineVault.lock(); state.user=null; state.offlineMode=false; state.vaultOwner=null; state.syncErrors={}; state.syncingDrafts=false; state.pendingPatientSubmission=null; $("appView").hidden=true; $("loginView").hidden=false; }
+function clearOfflineDraftPanel() {
+  const panel=$("offlineDraftPanel");
+  if(!panel)return;
+  panel.hidden=true;
+  $("offlineDraftCount").textContent="";
+  $("offlineDraftStatus").textContent="";
+  $("offlineDraftList").replaceChildren();
+  const button=$("syncDraftsButton");
+  button.hidden=true;
+  button.disabled=true;
+}
+function showLogin() { closeConsultationCall(); for(const id of ["patientDialog","patientRecordDialog","referenceImageDialog"]) {const dialog=$(id);if(dialog?.open)dialog.close();} const record=$("patientRecordContent");if(record)record.replaceChildren(); if(window.OfflineVault) window.OfflineVault.lock(); state.user=null; state.offlineMode=false; state.vaultOwner=null; state.syncErrors={}; state.syncingDrafts=false; state.pendingPatientSubmission=null; clearOfflineDraftPanel(); $("appView").hidden=true; $("loginView").hidden=false; }
 function vaultUnlockedForCurrentUser() { return Boolean(window.OfflineVault?.isUnlocked() && state.vaultOwner && state.user && state.vaultOwner===state.user.username.toLowerCase()); }
 async function unlockOrCreateVault(username, passphrase) {
   if(!window.OfflineVault) throw new Error(t("offlineVaultUnavailable"));
@@ -144,7 +155,7 @@ async function loadDashboard() { const data=await api("/api/dashboard"); $("metr
 async function loadPatients() { if(state.offlineMode) { state.patients=[]; $("patientRecordsPanel").hidden=true; renderPatients(); fillPatientSelects(); await refreshOfflineDraftPanel(); return {patients:[]}; } const data=await api("/api/patients"); state.patients=data.patients; if(window.OfflineScreening&&vaultUnlockedForCurrentUser()) await window.OfflineScreening.cachePatients(data.patients,{ownerUsername:state.vaultOwner,isCurrentUser:owner=>vaultUnlockedForCurrentUser()&&state.user?.username.toLowerCase()===owner}); $("patientRecordsPanel").hidden=false; renderPatients(); fillPatientSelects(); window.dispatchEvent(new Event("aarogya-patients-loaded")); if(vaultUnlockedForCurrentUser()) await refreshOfflineDraftPanel(); return data; }
 async function refreshOfflineDraftPanel() {
   const panel=$("offlineDraftPanel");
-  if(!vaultUnlockedForCurrentUser()) { panel.hidden=true; return []; }
+  if(!vaultUnlockedForCurrentUser()) { clearOfflineDraftPanel(); return []; }
   const entries=(await window.OfflineVault.listOperations()).filter(entry=>entry.operation?.type==="patient-registration-v1");
   panel.hidden=false;
   $("offlineDraftCount").textContent=String(entries.length);
